@@ -53,7 +53,7 @@ import {
   type DoctorCheck,
 } from './bridge-doctor';
 
-type LiveKitProject = {
+export type LiveKitProject = {
   name: string;
   url: string;
   apiKey: string;
@@ -61,7 +61,7 @@ type LiveKitProject = {
   projectId: string | null;
 };
 
-type PhoneNumberRecord = {
+export type PhoneNumberRecord = {
   id: string;
   e164Format: string;
   areaCode?: string;
@@ -71,12 +71,28 @@ type PhoneNumberRecord = {
   status?: string;
 };
 
-type SearchablePhoneNumberRecord = {
+export type SearchablePhoneNumberRecord = {
   e164Format: string;
   areaCode?: string;
   countryCode?: string;
   locality?: string;
   region?: string;
+};
+
+type BridgeCommand = 'setup' | 'dev' | 'live' | 'agent' | 'doctor';
+
+type SetupCommandOptions = {
+  startLiveAfterSetup: boolean;
+  bridgeProvider?: BridgeProvider;
+  livekitProjectName?: string;
+  workdir?: string;
+  agentName?: string;
+  setupPhone?: boolean;
+};
+
+type ParsedCliArgs = {
+  command: BridgeCommand | null;
+  setupOptions: SetupCommandOptions;
 };
 
 type PromptOption = {
@@ -126,42 +142,132 @@ class BridgeCliError extends Error {}
 
 refreshKnownPathEntries();
 
-const command = process.argv[2];
-
-if (!command || !['setup', 'dev', 'live', 'agent', 'doctor'].includes(command)) {
-  printHelp();
-  process.exit(command ? 1 : 0);
-}
-
-try {
-  switch (command) {
-    case 'setup':
-      await setupCommand();
-      break;
-    case 'dev':
-      await devCommand();
-      break;
-    case 'live':
-      await liveCommand();
-      break;
-    case 'agent':
-      await agentCommand();
-      break;
-    case 'doctor':
-      doctorCommand();
-      break;
-  }
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`Error: ${message}`);
-  process.exit(1);
+if (import.meta.main) {
+  await main(process.argv.slice(2));
 }
 
 function printHelp(): void {
-  console.log(`Usage: bun run ${basename(__filename)} <setup|dev|live|agent|doctor>`);
+  console.log(
+    [
+      `Usage: bun run ${basename(__filename)} <setup|dev|live|agent|doctor> [options]`,
+      '',
+      'Setup options:',
+      '  --no-start              Configure RepoLine without launching live mode',
+      '  --provider <name>       Choose claude, codex, or cursor',
+      '  --project <name>        Use a specific linked LiveKit project',
+      '  --workdir <path>        Set the coding CLI workdir without prompting',
+      '  --agent-name <name>     Set the LiveKit agent name without prompting',
+      '  --skip-phone            Skip phone setup without prompting',
+    ].join('\n')
+  );
 }
 
-async function setupCommand(): Promise<void> {
+export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): ParsedCliArgs {
+  const [commandRaw, ...rest] = argv;
+  const command = isBridgeCommand(commandRaw) ? commandRaw : null;
+  const setupOptions: SetupCommandOptions = {
+    startLiveAfterSetup: (env.REPOLINE_SETUP_SKIP_LIVE ?? '').trim() !== '1',
+  };
+
+  if (command === 'setup') {
+    for (let index = 0; index < rest.length; index += 1) {
+      const arg = rest[index];
+      switch (arg) {
+        case '--no-start':
+          setupOptions.startLiveAfterSetup = false;
+          break;
+        case '--skip-phone':
+          setupOptions.setupPhone = false;
+          break;
+        case '--provider':
+          setupOptions.bridgeProvider = parseBridgeProviderFlag(
+            readRequiredFlagValue('--provider', rest[index + 1])
+          );
+          index += 1;
+          break;
+        case '--project':
+          setupOptions.livekitProjectName = readRequiredFlagValue('--project', rest[index + 1]);
+          index += 1;
+          break;
+        case '--workdir':
+          setupOptions.workdir = readRequiredFlagValue('--workdir', rest[index + 1]);
+          index += 1;
+          break;
+        case '--agent-name':
+          setupOptions.agentName = readRequiredFlagValue('--agent-name', rest[index + 1]);
+          index += 1;
+          break;
+        default:
+          throw new BridgeCliError(`unknown setup option: ${arg}`);
+      }
+    }
+  }
+
+  return {
+    command,
+    setupOptions,
+  };
+}
+
+function readRequiredFlagValue(flag: string, value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    throw new BridgeCliError(`${flag} requires a value`);
+  }
+  return trimmed;
+}
+
+function parseBridgeProviderFlag(value: string): BridgeProvider {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'claude') {
+    return 'claude';
+  }
+  if (normalized === 'codex') {
+    return 'codex';
+  }
+  if (normalized === 'cursor' || normalized === 'cursor-agent') {
+    return 'cursor';
+  }
+  throw new BridgeCliError(`unsupported --provider value: ${value}`);
+}
+
+function isBridgeCommand(value: string | undefined): value is BridgeCommand {
+  return value === 'setup' || value === 'dev' || value === 'live' || value === 'agent' || value === 'doctor';
+}
+
+export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
+  try {
+    const parsed = parseCliArgs(argv);
+    if (!parsed.command) {
+      printHelp();
+      process.exit(argv.length > 0 ? 1 : 0);
+    }
+
+    switch (parsed.command) {
+      case 'setup':
+        await setupCommand(parsed.setupOptions);
+        break;
+      case 'dev':
+        await devCommand();
+        break;
+      case 'live':
+        await liveCommand();
+        break;
+      case 'agent':
+        await agentCommand();
+        break;
+      case 'doctor':
+        doctorCommand();
+        break;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Error: ${message}`);
+    process.exit(1);
+  }
+}
+
+async function setupCommand(options?: SetupCommandOptions): Promise<void> {
   intro('RepoLine');
   note(
     'This will install missing setup tooling when possible, link LiveKit if needed, write local env files, install the RepoLine voice and pronunciation skills into your selected repo, install dependencies, and optionally wire a project phone number.',
@@ -175,7 +281,12 @@ async function setupCommand(): Promise<void> {
   const ui = createPrompter();
   try {
     await ensureToolsAvailable(ui, ['lk', 'uv', 'bun'], 'RepoLine setup');
-    const bridgeProvider = await selectBridgeProvider(ui, agentEnv, existingState);
+    const bridgeProvider = await selectBridgeProvider(
+      ui,
+      agentEnv,
+      existingState,
+      options?.bridgeProvider
+    );
     await ensureToolsAvailable(
       ui,
       [providerExecutable(bridgeProvider)],
@@ -183,15 +294,21 @@ async function setupCommand(): Promise<void> {
     );
     await ensureProviderAuthenticated(ui, bridgeProvider);
 
-    const project = await selectLiveKitProject(ui, agentEnv);
+    const project = await selectLiveKitProject(ui, agentEnv, options?.livekitProjectName);
     const projectNumbers = listPhoneNumbers(project.name);
     const agentNameDefault =
       agentEnv.LIVEKIT_AGENT_NAME ??
       frontendEnv.AGENT_NAME ??
       existingState?.agent_name ??
       'clawdbot-agent';
-    const agentName = await ui.promptText('LiveKit agent name', agentNameDefault);
-    const workdir = await selectWorkdir(ui, agentEnv.BRIDGE_WORKDIR ?? existingState?.workdir ?? null);
+    const agentName = options?.agentName
+      ? noteAndReturn(options.agentName, `Using LiveKit agent name: ${options.agentName}`, 'Agent name')
+      : await ui.promptText('LiveKit agent name', agentNameDefault);
+    const workdir = await selectWorkdir(
+      ui,
+      agentEnv.BRIDGE_WORKDIR ?? existingState?.workdir ?? null,
+      options?.workdir
+    );
     const ttsModel = agentEnv.LIVEKIT_TTS_MODEL ?? 'cartesia/sonic-3';
     const ttsVoice = agentEnv.LIVEKIT_TTS_VOICE ?? '9626c31c-bec5-4cca-baa8-f8ba9e84c8bc';
     const skillInstall = installRepoLineSkill(bridgeProvider, workdir);
@@ -203,10 +320,12 @@ async function setupCommand(): Promise<void> {
     );
 
     let phoneConfig: PhoneConfig | null = null;
-    const shouldSetupPhone = await ui.promptBool(
-      'Configure an inbound phone number now?',
-      projectNumbers.length > 0 || existingState?.phone != null
-    );
+    const shouldSetupPhone =
+      options?.setupPhone ??
+      (await ui.promptBool(
+        'Configure an inbound phone number now?',
+        projectNumbers.length > 0 || existingState?.phone != null
+      ));
     if (shouldSetupPhone) {
       phoneConfig = await configurePhone(
         ui,
@@ -270,6 +389,10 @@ async function setupCommand(): Promise<void> {
     note(summaryLines.join('\n'), 'Setup complete');
     if (phoneConfig) {
       note(formatPhoneInstructions(phoneConfig), 'Call In');
+    }
+    if (options?.startLiveAfterSetup === false) {
+      outro('Setup complete. Live mode was skipped because --no-start was set.');
+      return;
     }
     outro('Starting RepoLine live...');
   } finally {
@@ -782,9 +905,34 @@ function selectDispatchRule(
 
 async function selectLiveKitProject(
   ui: ReturnType<typeof createPrompter>,
-  existingAgentEnv: Record<string, string>
+  existingAgentEnv: Record<string, string>,
+  preferredProjectName?: string
 ): Promise<LiveKitProject> {
   const projects = await ensureLiveKitProjectsLinked(ui, existingAgentEnv);
+
+  if (preferredProjectName) {
+    const match = findLiveKitProject(projects, preferredProjectName);
+    if (!match) {
+      throw new BridgeCliError(
+        `could not find a linked LiveKit project matching "${preferredProjectName}". Available projects: ${projects
+          .map((project) => project.name)
+          .join(', ')}`
+      );
+    }
+    return noteAndReturn(
+      match,
+      `Using linked LiveKit project: ${match.name}`,
+      'LiveKit project'
+    );
+  }
+
+  if (projects.length === 1) {
+    return noteAndReturn(
+      projects[0],
+      `Using the only linked LiveKit project: ${projects[0].name}`,
+      'LiveKit project'
+    );
+  }
 
   let defaultIndex = 0;
   const currentUrl = existingAgentEnv.LIVEKIT_URL;
@@ -804,6 +952,20 @@ async function selectLiveKitProject(
     defaultIndex
   );
   return projects[selection];
+}
+
+function findLiveKitProject(
+  projects: LiveKitProject[],
+  preferredProjectName: string
+): LiveKitProject | null {
+  const normalized = preferredProjectName.trim().toLowerCase();
+  return (
+    projects.find(
+      (project) =>
+        project.name.trim().toLowerCase() === normalized ||
+        project.url.trim().toLowerCase() === normalized
+    ) ?? null
+  );
 }
 
 async function ensureLiveKitProjectsLinked(
@@ -869,18 +1031,7 @@ function listConfiguredLiveKitProjects(): {
       };
     }
 
-    const projects = payload
-      .map((value) => {
-        const item = value as Record<string, unknown>;
-        return {
-          name: typeof item.Name === 'string' ? item.Name : '',
-          url: typeof item.URL === 'string' ? item.URL : '',
-          apiKey: typeof item.APIKey === 'string' ? item.APIKey : '',
-          apiSecret: typeof item.APISecret === 'string' ? item.APISecret : '',
-          projectId: typeof item.ProjectId === 'string' && item.ProjectId ? item.ProjectId : null,
-        };
-      })
-      .filter((item) => item.name && item.url && item.apiKey && item.apiSecret);
+    const projects = normalizeLiveKitProjects(payload);
 
     if (projects.length === 0) {
       return {
@@ -896,6 +1047,25 @@ function listConfiguredLiveKitProjects(): {
       detail: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export function normalizeLiveKitProjects(payload: unknown): LiveKitProject[] {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  return payload
+    .map((value) => {
+      const item = value as Record<string, unknown>;
+      return {
+        name: typeof item.Name === 'string' ? item.Name : '',
+        url: typeof item.URL === 'string' ? item.URL : '',
+        apiKey: typeof item.APIKey === 'string' ? item.APIKey : '',
+        apiSecret: typeof item.APISecret === 'string' ? item.APISecret : '',
+        projectId: typeof item.ProjectId === 'string' && item.ProjectId ? item.ProjectId : null,
+      };
+    })
+    .filter((item) => item.name && item.url && item.apiKey && item.apiSecret);
 }
 
 async function addLiveKitProjectManually(
@@ -933,9 +1103,29 @@ async function addLiveKitProjectManually(
 
 async function selectWorkdir(
   ui: ReturnType<typeof createPrompter>,
-  existingWorkdir: string | null
+  existingWorkdir: string | null,
+  preferredWorkdir?: string
 ): Promise<string> {
+  if (preferredWorkdir) {
+    const resolvedPreferredWorkdir = resolveHome(preferredWorkdir);
+    return validateWorkdir(
+      noteAndReturn(
+        resolvedPreferredWorkdir,
+        `Using coding CLI workdir: ${resolvedPreferredWorkdir}`,
+        'Workdir'
+      )
+    );
+  }
+
   const candidates = discoverRepoCandidates(existingWorkdir);
+  if (candidates.length === 1) {
+    return noteAndReturn(
+      candidates[0],
+      `Using the only detected git repo: ${candidates[0]}`,
+      'Workdir'
+    );
+  }
+
   const options = candidates.map((candidate) => ({
     label: basename(candidate),
     hint: candidate,
@@ -949,15 +1139,25 @@ async function selectWorkdir(
   if (selection === candidates.length) {
     while (true) {
       const value = await ui.promptText('Path to the repo', existingWorkdir ?? undefined);
-      const resolved = resolveHome(value);
-      if (isDirectory(resolved)) {
-        return resolved;
+      try {
+        return validateWorkdir(resolveHome(value));
+      } catch (error) {
+        note(error instanceof Error ? error.message : String(error), 'Try again');
       }
-      note(`Path does not exist: ${resolved}`, 'Try again');
     }
   }
 
   return candidates[selection];
+}
+
+function validateWorkdir(pathValue: string): string {
+  if (!isDirectory(pathValue)) {
+    throw new BridgeCliError(`Path does not exist: ${pathValue}`);
+  }
+  if (!existsSync(join(pathValue, '.git'))) {
+    throw new BridgeCliError(`Path is not a git repo: ${pathValue}`);
+  }
+  return pathValue;
 }
 
 function discoverRepoCandidates(existingWorkdir: string | null): string[] {
@@ -1255,7 +1455,7 @@ function listPhoneNumbers(projectName: string): PhoneNumberRecord[] {
   );
 }
 
-function normalizeSearchablePhoneNumbers(payload: unknown): SearchablePhoneNumberRecord[] {
+export function normalizeSearchablePhoneNumbers(payload: unknown): SearchablePhoneNumberRecord[] {
   const records = Array.isArray(payload)
     ? payload
     : payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown[] }).items)
@@ -1266,7 +1466,7 @@ function normalizeSearchablePhoneNumbers(payload: unknown): SearchablePhoneNumbe
     .filter((item): item is SearchablePhoneNumberRecord => item !== null);
 }
 
-function normalizeSearchablePhoneNumber(value: unknown): SearchablePhoneNumberRecord | null {
+export function normalizeSearchablePhoneNumber(value: unknown): SearchablePhoneNumberRecord | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
@@ -1290,7 +1490,7 @@ function normalizeSearchablePhoneNumber(value: unknown): SearchablePhoneNumberRe
   };
 }
 
-function parseSearchablePhoneNumbersTable(output: string): SearchablePhoneNumberRecord[] {
+export function parseSearchablePhoneNumbersTable(output: string): SearchablePhoneNumberRecord[] {
   const rowValues = output
     .split('\n')
     .map((line) => line.trim())
@@ -1462,11 +1662,30 @@ function assertSafeRuntimeConfig(agentEnv: Record<string, string>, frontendHost:
 async function selectBridgeProvider(
   ui: ReturnType<typeof createPrompter>,
   agentEnv: Record<string, string>,
-  existingState: SetupState | null
+  existingState: SetupState | null,
+  preferredProvider?: BridgeProvider
 ): Promise<BridgeProvider> {
+  if (preferredProvider) {
+    return noteAndReturn(
+      preferredProvider,
+      `Using coding CLI: ${formatBridgeProvider(preferredProvider)}`,
+      'Coding CLI'
+    );
+  }
+
   const provider = normalizeBridgeProvider(
     agentEnv.BRIDGE_CLI_PROVIDER ?? existingState?.bridge_provider ?? 'claude'
   );
+  const installedProviders = (['claude', 'codex', 'cursor'] as const).filter((candidate) =>
+    Boolean(Bun.which(providerExecutable(candidate)))
+  );
+  if (!agentEnv.BRIDGE_CLI_PROVIDER && !existingState?.bridge_provider && installedProviders.length === 1) {
+    return noteAndReturn(
+      installedProviders[0],
+      `Detected a single installed coding CLI: ${formatBridgeProvider(installedProviders[0])}`,
+      'Coding CLI'
+    );
+  }
   const options = [
     {
       label: 'Claude Code',
@@ -1929,14 +2148,25 @@ function formatPhoneInstructions(phone: PhoneConfig): string {
   ].join('\n');
 }
 
-function formatSearchablePhoneNumber(number: SearchablePhoneNumberRecord): string {
-  const location = [number.locality, number.region].filter(Boolean).join(', ');
+export function formatSearchablePhoneNumber(number: SearchablePhoneNumberRecord): string {
+  const locality = number.locality?.trim();
+  const region = number.region?.trim();
+  const locationParts =
+    locality && region && locality.toLowerCase().endsWith(` ${region.toLowerCase()}`)
+      ? [locality]
+      : [locality, region];
+  const location = locationParts.filter(Boolean).join(', ');
   const areaCode = number.areaCode ? `area code ${number.areaCode}` : null;
   return [location, areaCode].filter(Boolean).join(' - ') || number.e164Format;
 }
 
 function emphasize(value: string): string {
   return `\x1b[1m\x1b[36m${value}\x1b[0m`;
+}
+
+function noteAndReturn<T>(value: T, message: string, title: string): T {
+  note(message, title);
+  return value;
 }
 
 function createPrompter() {
@@ -1991,6 +2221,17 @@ function createPrompter() {
     ): Promise<number> {
       if (options.length === 0) {
         throw new BridgeCliError(`no options available for: ${prompt}`);
+      }
+      if (options.length === 1) {
+        const normalized =
+          typeof options[0] === 'string'
+            ? { label: options[0], hint: undefined }
+            : options[0];
+        note(
+          [normalized.label, normalized.hint].filter(Boolean).join('\n'),
+          `${prompt} (auto-selected)`
+        );
+        return 0;
       }
       const answer = await clackSelect({
         message: prompt,

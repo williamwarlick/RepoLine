@@ -36,7 +36,6 @@ Fresh machine?
 ```
 
 The bootstrap script can install `bun`, `uv`, `lk`, and one supported coding CLI for you.
-The repo includes [`.mise.toml`](./.mise.toml) only to pin Bun in environments where `bun` comes from a `mise` shim.
 
 Run:
 
@@ -48,6 +47,8 @@ bun run live
 ```
 
 `bun run setup` can install missing local tools, run `lk cloud auth`, add a LiveKit project manually, write the local env files, install dependencies, install the RepoLine voice skill into the target repo, and wire phone access. If the project does not have an active LiveKit number yet, setup can search for a US local number and purchase it from the CLI before it creates the dispatch rule.
+Use `bun run setup -- --no-start` if you want to configure RepoLine without immediately launching the live worker and frontend.
+For scripted onboarding and smoke tests, setup also accepts `--provider`, `--project`, `--workdir`, `--agent-name`, and `--skip-phone`.
 
 ## Run Modes
 
