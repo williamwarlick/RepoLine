@@ -36,6 +36,7 @@ from repoline_skill import (
     resolve_repoline_skill_prompt,
 )
 from telemetry import BridgeTelemetry
+from turn_strategy import join_transcript_parts, resolve_pending_turn_delay_seconds
 from voice_behavior import build_followup_status_message, build_initial_status_message
 
 logger = logging.getLogger("repoline-bridge")
@@ -134,6 +135,12 @@ class BridgeSettings:
     final_transcript_debounce_seconds: float = float(
         os.getenv("FINAL_TRANSCRIPT_DEBOUNCE_SECONDS", "0.85")
     )
+    short_transcript_word_threshold: int = int(
+        os.getenv("BRIDGE_SHORT_TRANSCRIPT_WORDS", "2")
+    )
+    short_transcript_debounce_seconds: float = float(
+        os.getenv("BRIDGE_SHORT_TRANSCRIPT_DEBOUNCE_SECONDS", "2.75")
+    )
     status_speech_enabled: bool = _env_bool("BRIDGE_STATUS_SPEECH_ENABLED", True)
     status_speech_delay_seconds: float = float(
         os.getenv("BRIDGE_STATUS_SPEECH_DELAY_SECONDS", "0.15")
@@ -154,6 +161,22 @@ class BridgeSettings:
     prometheus_port: int | None = _env_int("BRIDGE_PROMETHEUS_PORT")
     stt_model: str = os.getenv("LIVEKIT_STT_MODEL", "deepgram/nova-3")
     stt_language: str = os.getenv("LIVEKIT_STT_LANGUAGE", "multi")
+    turn_endpointing_mode: str = os.getenv("LIVEKIT_TURN_ENDPOINTING_MODE", "dynamic")
+    turn_min_endpointing_delay_seconds: float = float(
+        os.getenv("LIVEKIT_TURN_MIN_ENDPOINTING_DELAY_SECONDS", "0.8")
+    )
+    turn_max_endpointing_delay_seconds: float = float(
+        os.getenv("LIVEKIT_TURN_MAX_ENDPOINTING_DELAY_SECONDS", "2.2")
+    )
+    turn_interruption_mode: str = os.getenv(
+        "LIVEKIT_TURN_INTERRUPTION_MODE", "adaptive"
+    )
+    false_interruption_timeout_seconds: float = float(
+        os.getenv("LIVEKIT_FALSE_INTERRUPTION_TIMEOUT_SECONDS", "1.5")
+    )
+    resume_false_interruption: bool = _env_bool(
+        "LIVEKIT_RESUME_FALSE_INTERRUPTION", True
+    )
     tts_model: str = os.getenv("LIVEKIT_TTS_MODEL", "cartesia/sonic-3")
     tts_voice: str = os.getenv(
         "LIVEKIT_TTS_VOICE",
@@ -197,6 +220,11 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
         model=SETTINGS.model,
         workdir=SETTINGS.working_directory,
         stt_model=SETTINGS.stt_model,
+        stt_language=SETTINGS.stt_language,
+        turn_endpointing_mode=SETTINGS.turn_endpointing_mode,
+        turn_min_endpointing_delay_seconds=SETTINGS.turn_min_endpointing_delay_seconds,
+        turn_max_endpointing_delay_seconds=SETTINGS.turn_max_endpointing_delay_seconds,
+        turn_interruption_mode=SETTINGS.turn_interruption_mode,
         tts_model=SETTINGS.tts_model,
     )
 
@@ -209,7 +237,19 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             model=SETTINGS.tts_model,
             voice=SETTINGS.tts_voice,
         ),
-        turn_detection=MultilingualModel(),
+        turn_handling={
+            "turn_detection": MultilingualModel(),
+            "endpointing": {
+                "mode": SETTINGS.turn_endpointing_mode,
+                "min_delay": SETTINGS.turn_min_endpointing_delay_seconds,
+                "max_delay": SETTINGS.turn_max_endpointing_delay_seconds,
+            },
+            "interruption": {
+                "mode": SETTINGS.turn_interruption_mode,
+                "false_interruption_timeout": SETTINGS.false_interruption_timeout_seconds,
+                "resume_false_interruption": SETTINGS.resume_false_interruption,
+            },
+        },
         vad=ctx.proc.userdata["vad"],
     )
 
@@ -221,6 +261,8 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
     pending_status_speech = None
     pending_user_parts: list[str] = []
     pending_turn_id: str | None = None
+    pending_last_transcript_at = 0.0
+    pending_status_announced = False
     last_completed_stream_session_id: str | None = None
     turn_lock = asyncio.Lock()
 
@@ -257,7 +299,7 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
         pending_status_task = None
 
     async def maybe_speak_pending_status(turn_id: str) -> None:
-        nonlocal pending_status_speech
+        nonlocal pending_status_announced, pending_status_speech
 
         if not SETTINGS.status_speech_enabled:
             return
@@ -269,9 +311,7 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             if pending_turn_id != turn_id:
                 return
 
-            transcript_preview = " ".join(
-                part.strip() for part in pending_user_parts if part.strip()
-            )
+            transcript_preview = join_transcript_parts(pending_user_parts)
             message = build_initial_status_message(transcript_preview)
             telemetry.emit(
                 "bridge_status_started",
@@ -279,6 +319,7 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
                 transcript=transcript_preview,
                 message=message,
             )
+            pending_status_announced = True
             speech_handle = session.say(
                 message,
                 allow_interruptions=True,
@@ -620,24 +661,43 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             active_turn_task = asyncio.create_task(run_turn(turn_id, user_text))
 
     async def flush_pending_turn() -> None:
-        nonlocal pending_turn_id, pending_turn_task
+        nonlocal pending_last_transcript_at, pending_turn_id, pending_turn_task
         current_task = asyncio.current_task()
 
         try:
-            await asyncio.sleep(SETTINGS.final_transcript_debounce_seconds)
-            text = " ".join(
-                part.strip() for part in pending_user_parts if part.strip()
-            ).strip()
+            debounce_seconds = SETTINGS.final_transcript_debounce_seconds
+            while True:
+                debounce_seconds = resolve_pending_turn_delay_seconds(
+                    pending_user_parts,
+                    base_delay_seconds=SETTINGS.final_transcript_debounce_seconds,
+                    short_transcript_delay_seconds=SETTINGS.short_transcript_debounce_seconds,
+                    short_transcript_word_threshold=SETTINGS.short_transcript_word_threshold,
+                )
+                remaining = (
+                    pending_last_transcript_at + debounce_seconds
+                ) - time.monotonic()
+                if remaining > 0:
+                    await asyncio.sleep(remaining)
+                    continue
+                break
+
+            text = join_transcript_parts(pending_user_parts)
             turn_id = pending_turn_id or str(uuid.uuid4())
             pending_turn_id = None
             pending_user_parts.clear()
+            pending_last_transcript_at = 0.0
             if not text:
                 await stop_pending_status()
                 return
             logger.info(
                 "Starting %s turn with merged transcript: %s", SETTINGS.provider, text
             )
-            telemetry.emit("turn_merged", turn_id=turn_id, transcript=text)
+            telemetry.emit(
+                "turn_merged",
+                turn_id=turn_id,
+                transcript=text,
+                debounce_seconds=debounce_seconds,
+            )
             await start_turn(turn_id, text)
         except asyncio.CancelledError:
             raise
@@ -700,7 +760,12 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
 
     @session.on("user_input_transcribed")
     def on_user_input_transcribed(transcript) -> None:
-        nonlocal pending_status_task, pending_turn_id, pending_turn_task
+        nonlocal \
+            pending_last_transcript_at, \
+            pending_status_announced, \
+            pending_status_task, \
+            pending_turn_id, \
+            pending_turn_task
 
         text = transcript.transcript.strip()
         if not text:
@@ -708,12 +773,11 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
 
         if transcript.is_final and pending_turn_id is None:
             pending_turn_id = str(uuid.uuid4())
+            pending_status_announced = False
             telemetry.emit("turn_opened", turn_id=pending_turn_id, transcript=text)
-            if pending_status_task is not None and not pending_status_task.done():
-                pending_status_task.cancel()
-            pending_status_task = asyncio.create_task(
-                maybe_speak_pending_status(pending_turn_id)
-            )
+
+        if pending_turn_id is not None:
+            pending_last_transcript_at = time.monotonic()
 
         telemetry.emit(
             "user_input_transcribed",
@@ -723,6 +787,9 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
         )
 
         if not transcript.is_final:
+            if pending_status_task is not None and not pending_status_task.done():
+                pending_status_task.cancel()
+                pending_status_task = None
             if active_speech is not None and not active_speech.done():
                 with contextlib.suppress(RuntimeError):
                     active_speech.interrupt(force=True)
@@ -734,10 +801,17 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
         logger.info("Final transcript: %s", text)
         pending_user_parts.append(text)
 
-        if pending_turn_task is not None and not pending_turn_task.done():
-            pending_turn_task.cancel()
+        if (
+            not pending_status_announced
+            and (pending_status_task is None or pending_status_task.done())
+            and pending_turn_id is not None
+        ):
+            pending_status_task = asyncio.create_task(
+                maybe_speak_pending_status(pending_turn_id)
+            )
 
-        pending_turn_task = asyncio.create_task(flush_pending_turn())
+        if pending_turn_task is None or pending_turn_task.done():
+            pending_turn_task = asyncio.create_task(flush_pending_turn())
 
     await session.start(
         agent=agent,
