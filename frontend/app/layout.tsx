@@ -43,9 +43,9 @@ const commitMono = localFont({
 const DEFAULT_APP_BASE_URL = 'http://localhost:3000';
 
 function getMetadataBase(): URL {
-  const baseUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : DEFAULT_APP_BASE_URL);
+  const configuredAppUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  const baseUrl = configuredAppUrl || (vercelUrl ? `https://${vercelUrl}` : DEFAULT_APP_BASE_URL);
 
   try {
     return new URL(baseUrl);
@@ -76,6 +76,16 @@ export async function generateMetadata(): Promise<Metadata> {
       title: appConfig.pageTitle,
       description: appConfig.pageDescription,
       images: ['/opengraph-image'],
+    },
+    robots: {
+      index: false,
+      follow: false,
+      nocache: true,
+      googleBot: {
+        index: false,
+        follow: false,
+        noimageindex: true,
+      },
     },
   };
 }

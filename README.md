@@ -161,8 +161,8 @@ If you configured telephony in setup, RepoLine prints the number to call and the
 Phase 1 supports a frontend-only Vercel deployment.
 
 - deploy `frontend/` as its own Vercel project
-- protect the preview deployment with Vercel Authentication so anonymous visitors cannot load it
-- set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `AGENT_NAME`, and optionally `NEXT_PUBLIC_APP_URL`
+- enable Vercel deployment protection if your account supports it
+- set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `AGENT_NAME`, `NEXT_PUBLIC_APP_URL`, and `REPOLINE_ACCESS_PIN`
 - run `bun run agent` anywhere that can still reach your repo, CLI, and LiveKit project
 
 This keeps the current local-first execution model intact. Vercel only hosts the browser entry point; the LiveKit worker still needs to run elsewhere with the same LiveKit credentials and agent name.
@@ -177,7 +177,8 @@ RepoLine is intentionally local-first.
 - use `workspace-write` for sandboxed project edits, or `owner` only on a machine you fully control
 - runtime blocks `BRIDGE_ACCESS_POLICY=owner` unless you explicitly set `REPOLINE_ALLOW_OWNER=1`
 - runtime keeps the browser frontend on `127.0.0.1` unless you explicitly opt into `REPOLINE_FRONTEND_HOST=0.0.0.0` with `REPOLINE_ALLOW_REMOTE_BROWSER=1`
-- the frontend token route can run in production, but the deployment should stay behind Vercel Authentication or another outer auth layer
+- the hosted frontend now supports an app-level PIN gate for both the page and `/api/token`
+- Vercel Authentication is still useful as an outer layer when it is available on the project
 - the local worker still has to be running for inbound phone calls to reach the CLI
 
 The production-safe token route lives in [`frontend/app/api/token/route.ts`](./frontend/app/api/token/route.ts).

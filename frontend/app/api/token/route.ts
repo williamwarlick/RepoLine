@@ -8,81 +8,105 @@ type ConnectionDetails = {
   participantToken: string;
 };
 
-// NOTE: you are expected to define the following environment variables in `.env.local`:
-const API_KEY = process.env.LIVEKIT_API_KEY;
-const API_SECRET = process.env.LIVEKIT_API_SECRET;
-const LIVEKIT_URL = process.env.LIVEKIT_URL;
-
 // don't cache the results
 export const revalidate = 0;
+export const runtime = 'nodejs';
 
 type RoomConfigPayload = Record<string, unknown>;
+type LiveKitCredentials = {
+  apiKey: string;
+  apiSecret: string;
+  livekitUrl: string;
+};
 
 function isRoomConfigPayload(value: unknown): value is RoomConfigPayload {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export async function POST(req: Request) {
-  if (process.env.NODE_ENV !== 'development') {
-    throw new Error(
-      'THIS API ROUTE IS INSECURE. DO NOT USE THIS ROUTE IN PRODUCTION WITHOUT AN AUTHENTICATION LAYER.'
-    );
+function readRequiredEnv(
+  env: NodeJS.ProcessEnv,
+  key: 'LIVEKIT_URL' | 'LIVEKIT_API_KEY' | 'LIVEKIT_API_SECRET'
+): string {
+  const value = env[key]?.trim();
+  if (!value) {
+    throw new Error(`${key} is not defined`);
   }
+  return value;
+}
 
+function readLiveKitCredentials(env: NodeJS.ProcessEnv = process.env): LiveKitCredentials {
+  const livekitUrl = readRequiredEnv(env, 'LIVEKIT_URL');
+  const apiKey = readRequiredEnv(env, 'LIVEKIT_API_KEY');
+  const apiSecret = readRequiredEnv(env, 'LIVEKIT_API_SECRET');
+
+  return { apiKey, apiSecret, livekitUrl };
+}
+
+async function parseRequestBody(req: Request): Promise<unknown> {
   try {
-    if (LIVEKIT_URL === undefined) {
-      throw new Error('LIVEKIT_URL is not defined');
-    }
-    if (API_KEY === undefined) {
-      throw new Error('LIVEKIT_API_KEY is not defined');
-    }
-    if (API_SECRET === undefined) {
-      throw new Error('LIVEKIT_API_SECRET is not defined');
+    const text = await req.text();
+    if (!text.trim()) {
+      return {};
     }
 
-    // Parse room config from request body.
-    const body = await req.json();
-    const roomConfig =
-      isRoomConfigPayload(body) && isRoomConfigPayload(body.room_config)
-        ? body.room_config
-        : undefined;
+    return JSON.parse(text);
+  } catch {
+    throw new Error('Request body must be valid JSON');
+  }
+}
 
-    // Generate participant token
+function readRoomConfig(body: unknown): RoomConfigPayload | undefined {
+  return isRoomConfigPayload(body) && isRoomConfigPayload(body.room_config)
+    ? body.room_config
+    : undefined;
+}
+
+function buildResponseHeaders(): Headers {
+  return new Headers({
+    'Cache-Control': 'no-store',
+    'X-Robots-Tag': 'noindex, nofollow',
+  });
+}
+
+export async function POST(req: Request) {
+  try {
+    const credentials = readLiveKitCredentials();
+    const body = await parseRequestBody(req);
+    const roomConfig = readRoomConfig(body);
+
     const participantName = 'user';
     const participantIdentity = `voice_assistant_user_${Math.floor(Math.random() * 10_000)}`;
     const roomName = `voice_assistant_room_${Math.floor(Math.random() * 10_000)}`;
 
     const participantToken = await createParticipantToken(
+      credentials,
       { identity: participantIdentity, name: participantName },
       roomName,
       roomConfig
     );
 
-    // Return connection details
     const data: ConnectionDetails = {
-      serverUrl: LIVEKIT_URL,
+      serverUrl: credentials.livekitUrl,
       roomName,
       participantName,
       participantToken,
     };
-    const headers = new Headers({
-      'Cache-Control': 'no-store',
-    });
-    return NextResponse.json(data, { headers });
+
+    return NextResponse.json(data, { headers: buildResponseHeaders() });
   } catch (error) {
-    if (error instanceof Error) {
-      console.error(error);
-      return new NextResponse(error.message, { status: 500 });
-    }
+    const message = error instanceof Error ? error.message : 'Failed to create LiveKit token';
+    console.error(message);
+    return NextResponse.json({ error: message }, { status: 500, headers: buildResponseHeaders() });
   }
 }
 
 function createParticipantToken(
+  credentials: LiveKitCredentials,
   userInfo: AccessTokenOptions,
   roomName: string,
   roomConfig?: RoomConfigPayload
 ): Promise<string> {
-  const at = new AccessToken(API_KEY, API_SECRET, {
+  const at = new AccessToken(credentials.apiKey, credentials.apiSecret, {
     ...userInfo,
     ttl: '15m',
   });

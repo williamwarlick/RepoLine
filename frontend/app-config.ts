@@ -32,6 +32,10 @@ export interface AppConfig {
   sandboxId?: string;
 }
 
+function readOptionalEnv(key: string): string | undefined {
+  return process.env[key]?.trim() || undefined;
+}
+
 export const APP_CONFIG_DEFAULTS: AppConfig = {
   companyName: 'RepoLine',
   pageTitle: 'RepoLine',
@@ -65,7 +69,7 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   // audioVisualizerType: 'aura',
 
   // agent dispatch configuration
-  agentName: process.env.AGENT_NAME ?? undefined,
+  agentName: readOptionalEnv('AGENT_NAME'),
 
   // LiveKit Cloud Sandbox configuration
   sandboxId: undefined,

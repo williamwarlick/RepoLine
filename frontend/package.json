@@ -7,6 +7,7 @@
     "dev:network": "bun --bun next dev --turbopack --hostname 0.0.0.0",
     "build": "bun --bun next build",
     "start": "bun --bun next start",
+    "test": "bun test",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit",
