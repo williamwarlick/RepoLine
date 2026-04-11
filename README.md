@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="./docs/assets/repoline-banner.svg" alt="RepoLine" width="100%" />
+</p>
+
+<p align="center">
   <strong>Call your codebase.</strong><br />
   Talk to your coding CLI from your phone or browser over LiveKit.
 </p>
@@ -20,8 +24,8 @@
   <a href="#how-it-works">How it works</a> ·
   <a href="#security-model">Security model</a> ·
   <a href="./docs/README.md">Docs</a> ·
-  <a href="./docs/PHONE.md">Phone access</a> ·
-  <a href="./docs/COSTS.md">Costs and limits</a>
+  <a href="./docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="./docs/BRANDING.md">Branding</a>
 </p>
 
 ## Why RepoLine
@@ -198,6 +202,9 @@ Useful docs:
 - [How it works](./docs/HOW-IT-WORKS.md)
 - [Phone access](./docs/PHONE.md)
 - [Costs and limits](./docs/COSTS.md)
+- [Architecture](./docs/ARCHITECTURE.md)
+- [Streaming bridge](./docs/STREAMING-BRIDGE.md)
+- [Branding](./docs/BRANDING.md)
 
 ## Debugging The Stream
 
