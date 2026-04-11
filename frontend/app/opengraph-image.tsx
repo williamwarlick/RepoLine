@@ -19,7 +19,7 @@ type ImageData = {
 };
 
 // Image metadata
-export const alt = 'About Acme';
+export const alt = 'RepoLine';
 export const size = {
   width: 1200,
   height: 628,
@@ -92,7 +92,7 @@ function scaleImageSize(size: { width: number; height: number }, desiredHeight: 
 
 function cleanPageTitle(appName: string) {
   if (appName === APP_CONFIG_DEFAULTS.pageTitle) {
-    return 'Voice agent';
+    return 'Call your codebase';
   }
 
   return appName;
@@ -107,8 +107,6 @@ export default async function Image() {
 
   const pageTitle = cleanPageTitle(appConfig.pageTitle);
   const logoUri = appConfig.logoDark || appConfig.logo;
-  const isLogoUriLocal = logoUri.includes('lk-logo');
-  const wordmarkUri = logoUri === APP_CONFIG_DEFAULTS.logoDark ? 'public/lk-wordmark.svg' : logoUri;
 
   // Load fonts - use file system in dev, fetch in production
   let commitMonoData: ArrayBuffer | undefined;
@@ -125,18 +123,12 @@ export default async function Image() {
   // bg
   const { base64: bgSrcBase64 } = await getImageData('public/opengraph-image-bg.png');
 
-  // wordmark
-  const { base64: wordmarkSrcBase64, dimensions: wordmarkDimensions } = isLogoUriLocal
-    ? await getImageData(wordmarkUri)
-    : await getImageData(logoUri);
-  const wordmarkSize = scaleImageSize(wordmarkDimensions, isLogoUriLocal ? 32 : 64);
-
   // logo
   const { base64: logoSrcBase64, dimensions: logoDimensions } = await getImageData(
     logoUri,
-    'public/lk-logo-dark.svg'
+    'public/repoline-mark.svg'
   );
-  const logoSize = scaleImageSize(logoDimensions, 24);
+  const logoSize = scaleImageSize(logoDimensions, 76);
 
   return new ImageResponse(
     // ImageResponse JSX element
@@ -153,41 +145,40 @@ export default async function Image() {
         backgroundRepeat: 'no-repeat',
       }}
     >
-      {/* wordmark */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 30,
-          left: 30,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-        }}
-      >
-        {/* eslint-disable-next-line jsx-a11y/alt-text */}
-        <img src={wordmarkSrcBase64} width={wordmarkSize.width} height={wordmarkSize.height} />
-      </div>
       {/* logo */}
       <div
         style={{
           position: 'absolute',
-          top: 200,
-          left: 460,
+          top: 52,
+          left: 48,
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
+          gap: 18,
         }}
       >
         {/* eslint-disable-next-line jsx-a11y/alt-text */}
         <img src={logoSrcBase64} width={logoSize.width} height={logoSize.height} />
       </div>
-      {/* title */}
       <div
         style={{
           position: 'absolute',
-          bottom: 100,
-          left: 30,
-          width: '380px',
+          top: 74,
+          left: 148,
+          fontSize: 34,
+          fontFamily: 'CommitMono',
+          fontWeight: 600,
+          color: '#67E8F9',
+          letterSpacing: 3.4,
+        }}
+      >
+        REPOLINE
+      </div>
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 92,
+          left: 48,
+          width: '760px',
           display: 'flex',
           flexDirection: 'column',
           gap: 16,
@@ -198,7 +189,7 @@ export default async function Image() {
             backgroundColor: '#1F1F1F',
             padding: '2px 8px',
             borderRadius: 4,
-            width: 72,
+            width: 88,
             fontSize: 12,
             fontFamily: 'CommitMono',
             fontWeight: 600,
@@ -210,11 +201,11 @@ export default async function Image() {
         </div>
         <div
           style={{
-            fontSize: 48,
+            fontSize: 58,
             fontWeight: 300,
             fontFamily: 'Everett',
             color: 'white',
-            lineHeight: 1,
+            lineHeight: 1.04,
           }}
         >
           {pageTitle}

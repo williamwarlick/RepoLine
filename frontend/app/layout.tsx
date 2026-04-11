@@ -108,7 +108,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
             <a
               target='_blank'
               rel='noopener noreferrer'
-              href='https://livekit.io'
+              href='https://github.com/williamwarlick/RepoLine'
               className='scale-100 transition-transform duration-300 hover:scale-110'
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
