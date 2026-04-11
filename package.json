@@ -3,9 +3,13 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.3.11",
+  "dependencies": {
+    "@clack/prompts": "^0.11.0"
+  },
   "scripts": {
     "setup": "bun run ./scripts/phone-bridge.ts setup",
     "dev": "bun run ./scripts/phone-bridge.ts dev",
+    "live": "bun run ./scripts/phone-bridge.ts live",
     "doctor": "bun run ./scripts/phone-bridge.ts doctor"
   }
 }

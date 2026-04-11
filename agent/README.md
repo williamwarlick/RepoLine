@@ -21,8 +21,18 @@ Use `console` instead of `dev` if you want to test the agent locally without the
 - `LIVEKIT_AGENT_NAME`
 - `BRIDGE_CLI_PROVIDER`
 - `BRIDGE_WORKDIR`
-- `BRIDGE_MODEL`
 - `REPOLINE_SKILL_NAME`
+- `BRIDGE_MODEL`
+- `BRIDGE_THINKING_LEVEL`
+- `BRIDGE_ACCESS_POLICY` (`readonly`, `workspace-write`, or `owner`)
 - `BRIDGE_SYSTEM_PROMPT` for explicit overrides
 - `LIVEKIT_STT_MODEL`
 - `LIVEKIT_TTS_MODEL`
+
+RepoLine now expects a hard cutover to the `BRIDGE_*` env shape. The selected repo must have the RepoLine voice instructions installed for the configured CLI unless you explicitly set `BRIDGE_SYSTEM_PROMPT`.
+
+Access policy guide:
+
+- `readonly`: repo questions and inspection only
+- `workspace-write`: project edits inside the provider's safer write mode
+- `owner`: highest-permission local mode for the machine owner

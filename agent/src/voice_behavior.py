@@ -24,18 +24,38 @@ def build_initial_status_message(user_text: str) -> str:
     if not normalized:
         return "I'm checking that now."
 
-    if ".env" in normalized or "environment variable" in normalized or "env var" in normalized:
+    if (
+        ".env" in normalized
+        or "environment variable" in normalized
+        or "env var" in normalized
+    ):
         return "I'm checking the repo for environment details now."
 
     if any(
         keyword in normalized
-        for keyword in ("file", "files", "folder", "folders", "directory", "directories")
+        for keyword in (
+            "file",
+            "files",
+            "folder",
+            "folders",
+            "directory",
+            "directories",
+        )
     ):
         return "I'm looking through the repo for that now."
 
     if any(
         keyword in normalized
-        for keyword in ("search", "find", "grep", "look for", "where", "which", "show", "list")
+        for keyword in (
+            "search",
+            "find",
+            "grep",
+            "look for",
+            "where",
+            "which",
+            "show",
+            "list",
+        )
     ):
         return "I'm searching through that now."
 
@@ -51,10 +71,130 @@ def build_initial_status_message(user_text: str) -> str:
     ):
         return "I'm working on that change now."
 
-    if any(keyword in normalized for keyword in ("why", "how", "explain", "walk me through")):
+    if any(
+        keyword in normalized
+        for keyword in ("why", "how", "explain", "walk me through")
+    ):
         return "I'm tracing through that now."
 
     return "I'm checking that now."
+
+
+def build_followup_status_message(user_text: str, followup_count: int = 0) -> str:
+    normalized = _normalize_text(user_text)
+    if not normalized:
+        return _cycle_message(
+            (
+                "I'm digging into that now.",
+                "I'm still tracing that through.",
+                "I'm narrowing that down now.",
+            ),
+            followup_count,
+        )
+
+    if (
+        ".env" in normalized
+        or "environment variable" in normalized
+        or "env var" in normalized
+    ):
+        return _cycle_message(
+            (
+                "I'm checking the repo for the environment details now.",
+                "I'm still tracing where those environment settings live.",
+                "I'm narrowing down which config files matter.",
+            ),
+            followup_count,
+        )
+
+    if any(
+        keyword in normalized
+        for keyword in (
+            "file",
+            "files",
+            "folder",
+            "folders",
+            "directory",
+            "directories",
+        )
+    ):
+        return _cycle_message(
+            (
+                "I'm looking through the repo for that now.",
+                "I'm still tracing the relevant files.",
+                "I'm narrowing down which parts of the repo matter.",
+            ),
+            followup_count,
+        )
+
+    if any(
+        keyword in normalized
+        for keyword in (
+            "search",
+            "find",
+            "grep",
+            "look for",
+            "where",
+            "which",
+            "show",
+            "list",
+        )
+    ):
+        return _cycle_message(
+            (
+                "I'm digging through the repo for that now.",
+                "I'm still searching the relevant code paths.",
+                "I'm narrowing down where that shows up.",
+            ),
+            followup_count,
+        )
+
+    if any(
+        keyword in normalized
+        for keyword in ("bug", "error", "issue", "failing", "broken", "debug", "trace")
+    ):
+        return _cycle_message(
+            (
+                "I'm digging into that failure now.",
+                "I'm still tracing the failing path through the code.",
+                "I'm narrowing down the cause now.",
+            ),
+            followup_count,
+        )
+
+    if any(
+        keyword in normalized
+        for keyword in ("fix", "change", "update", "edit", "implement", "add", "remove")
+    ):
+        return _cycle_message(
+            (
+                "I'm getting into the code for that change now.",
+                "I'm still tracing what needs to change before I touch it.",
+                "I'm narrowing down the affected files now.",
+            ),
+            followup_count,
+        )
+
+    if any(
+        keyword in normalized
+        for keyword in ("why", "how", "explain", "walk me through")
+    ):
+        return _cycle_message(
+            (
+                "I'm tracing that through in the code now.",
+                "I'm still following the relevant path so I can explain it clearly.",
+                "I'm narrowing that down into the important pieces now.",
+            ),
+            followup_count,
+        )
+
+    return _cycle_message(
+        (
+            "I'm digging into that now.",
+            "I'm still tracing that through.",
+            "I'm narrowing that down now.",
+        ),
+        followup_count,
+    )
 
 
 async def generate_thinking_cue() -> AsyncIterator[rtc.AudioFrame]:
@@ -119,6 +259,10 @@ def _amplitude_envelope(sample_index: int, total_samples: int) -> float:
     if sample_index >= total_samples - fade_samples:
         return max(0.0, (total_samples - sample_index) / fade_samples)
     return 1.0
+
+
+def _cycle_message(messages: tuple[str, ...], index: int) -> str:
+    return messages[index % len(messages)]
 
 
 def _normalize_text(text: str) -> str:

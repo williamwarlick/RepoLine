@@ -30,6 +30,7 @@ def test_build_claude_command_uses_session_id_and_system_prompt() -> None:
         session_id="123e4567-e89b-12d3-a456-426614174000",
         system_prompt="Speak briefly.",
         model="sonnet",
+        thinking_level="medium",
         working_directory="/tmp/project",
     )
 
@@ -41,6 +42,8 @@ def test_build_claude_command_uses_session_id_and_system_prompt() -> None:
     assert "Speak briefly." in command
     assert "--model" in command
     assert "sonnet" in command
+    assert "--effort" in command
+    assert "medium" in command
 
 
 def test_build_claude_command_can_resume_and_fork() -> None:

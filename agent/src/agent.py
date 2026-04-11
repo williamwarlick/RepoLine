@@ -26,49 +26,30 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from model_stream import (
     TextStreamConfig,
     TextStreamError,
+    infer_access_policy,
     normalize_provider,
     provider_display_name,
     stream_text_events,
 )
-from repoline_skill import DEFAULT_REPOLINE_SKILL_NAME, resolve_repoline_skill_prompt
+from repoline_skill import resolve_repoline_skill_prompt
 from telemetry import BridgeTelemetry
-from voice_behavior import build_initial_status_message
+from voice_behavior import build_followup_status_message, build_initial_status_message
 
 logger = logging.getLogger("repoline-bridge")
+REPOLINE_UI_ARTIFACT_TOPIC = "repoline.ui.artifact"
 
 load_dotenv(".env.local")
 
 
-DEFAULT_SYSTEM_PROMPT = (
-    "You are speaking aloud through a LiveKit voice session connected to a local coding agent CLI. "
-    "Keep replies concise, conversational, and easy to follow by ear. "
-    "Avoid markdown, bullet lists, tables, and code fences unless the user explicitly asks. "
-    "Before you inspect files, run commands, call tools, or pause for deeper reasoning, first say "
-    "one short sentence about exactly what you are about to check. "
-    "If the task is deep, broad, or likely to take more than a few seconds, prefer delegating "
-    "background investigation to subagents when available, then say what you delegated before "
-    "continuing. While work is in progress, keep giving short spoken progress updates instead of "
-    "going silent."
-)
-
-
 def _resolve_bridge_system_prompt() -> str:
-    explicit_system_prompt = os.getenv("BRIDGE_SYSTEM_PROMPT")
-    if explicit_system_prompt is None or not explicit_system_prompt.strip():
-        legacy_prompt = os.getenv("CLAUDE_SYSTEM_PROMPT")
-        explicit_system_prompt = legacy_prompt if legacy_prompt and legacy_prompt.strip() else None
-
-    provider = normalize_provider(os.getenv("BRIDGE_CLI_PROVIDER", "claude"))
-    working_directory = (
-        os.getenv("BRIDGE_WORKDIR") or os.getenv("CLAUDE_WORKDIR") or str(Path.home())
-    )
-    skill_name = os.getenv("REPOLINE_SKILL_NAME", DEFAULT_REPOLINE_SKILL_NAME)
+    provider = normalize_provider(os.environ["BRIDGE_CLI_PROVIDER"])
+    working_directory = os.environ["BRIDGE_WORKDIR"]
+    skill_name = os.environ["REPOLINE_SKILL_NAME"]
 
     return resolve_repoline_skill_prompt(
         provider=provider,
         working_directory=working_directory,
-        explicit_system_prompt=explicit_system_prompt,
-        default_system_prompt=DEFAULT_SYSTEM_PROMPT,
+        explicit_system_prompt=os.getenv("BRIDGE_SYSTEM_PROMPT"),
         skill_name=skill_name,
     ).prompt
 
@@ -87,6 +68,42 @@ def _env_int(name: str) -> int | None:
     return int(value)
 
 
+def _env_optional(name: str) -> str | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _env_optional_bool(name: str) -> bool | None:
+    value = _env_optional(name)
+    if value is None:
+        return None
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_thinking_level() -> str | None:
+    return (
+        _env_optional("BRIDGE_THINKING_LEVEL")
+        or _env_optional("BRIDGE_CODEX_REASONING_EFFORT")
+        or "low"
+    )
+
+
+def _resolve_access_policy(provider: str) -> str:
+    return infer_access_policy(
+        normalize_provider(provider),
+        _env_optional("BRIDGE_ACCESS_POLICY"),
+        legacy_codex_bypass=_env_optional_bool(
+            "CODEX_DANGEROUSLY_BYPASS_APPROVALS_AND_SANDBOX"
+        ),
+        legacy_cursor_force=_env_optional_bool("BRIDGE_CURSOR_FORCE"),
+        legacy_cursor_approve_mcps=_env_optional_bool("BRIDGE_CURSOR_APPROVE_MCPS"),
+        legacy_cursor_sandbox_mode=_env_optional("BRIDGE_CURSOR_SANDBOX"),
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class BridgeSettings:
     agent_name: str = os.getenv("LIVEKIT_AGENT_NAME", "clawdbot-agent")
@@ -94,26 +111,26 @@ class BridgeSettings:
         "BRIDGE_GREETING",
         "RepoLine is live. What do you want to work on?",
     )
-    provider: str = normalize_provider(os.getenv("BRIDGE_CLI_PROVIDER", "claude"))
-    skill_name: str = os.getenv("REPOLINE_SKILL_NAME", DEFAULT_REPOLINE_SKILL_NAME)
-    chunk_chars: int = int(
-        os.getenv("BRIDGE_CHUNK_CHARS", os.getenv("CLAUDE_CHUNK_CHARS", "140"))
-    )
-    model: str | None = os.getenv("BRIDGE_MODEL") or os.getenv("CLAUDE_MODEL") or None
+    provider: str = normalize_provider(os.environ["BRIDGE_CLI_PROVIDER"])
+    skill_name: str = os.environ["REPOLINE_SKILL_NAME"]
+    chunk_chars: int = int(os.getenv("BRIDGE_CHUNK_CHARS", "140"))
+    model: str | None = _env_optional("BRIDGE_MODEL")
+    thinking_level: str | None = _resolve_thinking_level()
     system_prompt: str = _resolve_bridge_system_prompt()
-    working_directory: str = (
-        os.getenv("BRIDGE_WORKDIR") or os.getenv("CLAUDE_WORKDIR") or str(Path.home())
-    )
-    codex_dangerously_bypass_approvals_and_sandbox: bool = _env_bool(
-        "CODEX_DANGEROUSLY_BYPASS_APPROVALS_AND_SANDBOX",
-        True,
-    )
+    working_directory: str = os.environ["BRIDGE_WORKDIR"]
+    access_policy: str = _resolve_access_policy(os.environ["BRIDGE_CLI_PROVIDER"])
     final_transcript_debounce_seconds: float = float(
         os.getenv("FINAL_TRANSCRIPT_DEBOUNCE_SECONDS", "0.85")
     )
     status_speech_enabled: bool = _env_bool("BRIDGE_STATUS_SPEECH_ENABLED", True)
     status_speech_delay_seconds: float = float(
         os.getenv("BRIDGE_STATUS_SPEECH_DELAY_SECONDS", "0.15")
+    )
+    status_followup_delay_seconds: float = float(
+        os.getenv("BRIDGE_STATUS_FOLLOWUP_DELAY_SECONDS", "4.0")
+    )
+    status_followup_interval_seconds: float = float(
+        os.getenv("BRIDGE_STATUS_FOLLOWUP_INTERVAL_SECONDS", "8.0")
     )
     telemetry_jsonl_path: str | None = os.getenv("BRIDGE_TELEMETRY_JSONL") or str(
         Path(__file__).resolve().parent.parent / "logs" / "bridge-telemetry.jsonl"
@@ -240,7 +257,9 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             if pending_turn_id != turn_id:
                 return
 
-            transcript_preview = " ".join(part.strip() for part in pending_user_parts if part.strip())
+            transcript_preview = " ".join(
+                part.strip() for part in pending_user_parts if part.strip()
+            )
             message = build_initial_status_message(transcript_preview)
             telemetry.emit(
                 "bridge_status_started",
@@ -280,11 +299,10 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             resume_session_id=last_completed_stream_session_id,
             system_prompt=SETTINGS.system_prompt,
             model=SETTINGS.model,
+            thinking_level=SETTINGS.thinking_level,
             working_directory=SETTINGS.working_directory,
             chunk_chars=SETTINGS.chunk_chars,
-            codex_dangerously_bypass_approvals_and_sandbox=(
-                SETTINGS.codex_dangerously_bypass_approvals_and_sandbox
-            ),
+            access_policy=SETTINGS.access_policy,
         )
 
         telemetry.emit(
@@ -298,9 +316,72 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
 
         event_stream = stream_text_events(config)
         speech_handle = None
+        followup_status_task: asyncio.Task[None] | None = None
+        followup_status_speech = None
+        followup_status_count = 0
+        artifact_sequence = 0
+
+        async def stop_followup_status() -> None:
+            nonlocal followup_status_task, followup_status_speech
+
+            if followup_status_speech is not None and not followup_status_speech.done():
+                with contextlib.suppress(RuntimeError):
+                    followup_status_speech.interrupt(force=True)
+                with contextlib.suppress(Exception):
+                    await followup_status_speech.wait_for_playout()
+            followup_status_speech = None
+
+            if followup_status_task is not None and not followup_status_task.done():
+                followup_status_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await followup_status_task
+            followup_status_task = None
+
+        async def maybe_speak_followup_status() -> None:
+            nonlocal followup_status_count, followup_status_speech
+
+            if not SETTINGS.status_speech_enabled:
+                return
+
+            await asyncio.sleep(SETTINGS.status_followup_delay_seconds)
+
+            while True:
+                message = build_followup_status_message(
+                    user_text, followup_status_count
+                )
+                followup_status_count += 1
+                telemetry.emit(
+                    "bridge_status_followup_started",
+                    turn_id=turn_id,
+                    transcript=user_text,
+                    message=message,
+                )
+                speech_handle = session.say(
+                    message,
+                    allow_interruptions=True,
+                    add_to_chat_ctx=False,
+                )
+                followup_status_speech = speech_handle
+                try:
+                    await speech_handle.wait_for_playout()
+                    telemetry.emit(
+                        "bridge_status_followup_completed",
+                        turn_id=turn_id,
+                        message=message,
+                    )
+                finally:
+                    if followup_status_speech is speech_handle:
+                        followup_status_speech = None
+
+                await asyncio.sleep(SETTINGS.status_followup_interval_seconds)
 
         async def consume_event(event) -> str | None:
-            nonlocal active_session_id, error_message, saw_text, turn_completed
+            nonlocal \
+                active_session_id, \
+                artifact_sequence, \
+                error_message, \
+                saw_text, \
+                turn_completed
 
             if event.session_id:
                 active_session_id = event.session_id
@@ -328,6 +409,47 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
                     latency_ms=round((time.monotonic() - started_at) * 1000, 1),
                 )
                 return event.text
+
+            if (
+                event.type == "artifact"
+                and event.artifact
+                and event.artifact.text.strip()
+            ):
+                artifact_sequence += 1
+                attributes = {
+                    "repoline.kind": event.artifact.kind,
+                    "repoline.title": event.artifact.title,
+                    "repoline.provider": SETTINGS.provider,
+                    "repoline.turn_id": turn_id,
+                    "repoline.sequence": str(artifact_sequence),
+                }
+                if event.artifact.artifact_id:
+                    attributes["repoline.artifact_id"] = event.artifact.artifact_id
+                if event.artifact.language:
+                    attributes["repoline.language"] = event.artifact.language
+                if active_session_id:
+                    attributes["repoline.session_id"] = active_session_id
+
+                try:
+                    await session.room_io.room.local_participant.send_text(
+                        event.artifact.text,
+                        topic=REPOLINE_UI_ARTIFACT_TOPIC,
+                        attributes=attributes,
+                    )
+                    telemetry.emit(
+                        "model_artifact_published",
+                        turn_id=turn_id,
+                        provider=SETTINGS.provider,
+                        stream_session_id=active_session_id,
+                        kind=event.artifact.kind,
+                        title=event.artifact.title,
+                        language=event.artifact.language,
+                        sequence=artifact_sequence,
+                        latency_ms=round((time.monotonic() - started_at) * 1000, 1),
+                    )
+                except Exception:
+                    logger.exception("failed to publish UI artifact")
+                return None
 
             if event.type == "error":
                 error_message = event.message or f"{provider_name} failed."
@@ -357,6 +479,7 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             return None
 
         try:
+            followup_status_task = asyncio.create_task(maybe_speak_followup_status())
             first_chunk = None
             async for event in event_stream:
                 chunk = await consume_event(event)
@@ -367,10 +490,14 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
                     break
 
             if first_chunk is None:
+                await stop_followup_status()
                 if error_message:
                     raise TextStreamError(error_message)
-                raise TextStreamError(f"{provider_name} finished without producing speech text.")
+                raise TextStreamError(
+                    f"{provider_name} finished without producing speech text."
+                )
 
+            await stop_followup_status()
             await stop_pending_status()
             telemetry.emit(
                 "model_first_chunk_ready",
@@ -410,6 +537,7 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
                 latency_ms=round((time.monotonic() - started_at) * 1000, 1),
             )
         except StopAsyncIteration:
+            await stop_followup_status()
             logger.warning("%s finished without returning speech text", provider_name)
             telemetry.emit(
                 "model_empty_turn",
@@ -418,8 +546,12 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
                 stream_session_id=active_session_id,
             )
         except TextStreamError as exc:
+            await stop_followup_status()
             logger.exception("%s stream failed: %s", provider_name, exc)
-            message = str(exc).strip() or f"{provider_name} failed before returning a response."
+            message = (
+                str(exc).strip()
+                or f"{provider_name} failed before returning a response."
+            )
             await stop_pending_status()
             speech_handle = session.say(
                 message,
@@ -436,6 +568,7 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             )
             await speech_handle.wait_for_playout()
         except asyncio.CancelledError:
+            await stop_followup_status()
             if speech_handle is not None and not speech_handle.done():
                 with contextlib.suppress(RuntimeError):
                     speech_handle.interrupt(force=True)
@@ -447,6 +580,7 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             )
             raise
         finally:
+            await stop_followup_status()
             if turn_completed:
                 logger.info(
                     "%s turn completed successfully; next turn will resume from session %s",
@@ -479,14 +613,18 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
 
         try:
             await asyncio.sleep(SETTINGS.final_transcript_debounce_seconds)
-            text = " ".join(part.strip() for part in pending_user_parts if part.strip()).strip()
+            text = " ".join(
+                part.strip() for part in pending_user_parts if part.strip()
+            ).strip()
             turn_id = pending_turn_id or str(uuid.uuid4())
             pending_turn_id = None
             pending_user_parts.clear()
             if not text:
                 await stop_pending_status()
                 return
-            logger.info("Starting %s turn with merged transcript: %s", SETTINGS.provider, text)
+            logger.info(
+                "Starting %s turn with merged transcript: %s", SETTINGS.provider, text
+            )
             telemetry.emit("turn_merged", turn_id=turn_id, transcript=text)
             await start_turn(turn_id, text)
         except asyncio.CancelledError:
@@ -561,7 +699,9 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             telemetry.emit("turn_opened", turn_id=pending_turn_id, transcript=text)
             if pending_status_task is not None and not pending_status_task.done():
                 pending_status_task.cancel()
-            pending_status_task = asyncio.create_task(maybe_speak_pending_status(pending_turn_id))
+            pending_status_task = asyncio.create_task(
+                maybe_speak_pending_status(pending_turn_id)
+            )
 
         telemetry.emit(
             "user_input_transcribed",

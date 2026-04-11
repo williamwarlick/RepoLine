@@ -16,3 +16,44 @@ def test_bridge_telemetry_writes_jsonl(tmp_path) -> None:
     assert payload["event"] == "turn_opened"
     assert payload["turn_id"] == "turn-123"
     assert payload["transcript"] == "hello"
+
+
+def test_bridge_telemetry_writes_latest_call_summary(tmp_path) -> None:
+    output_path = tmp_path / "bridge.jsonl"
+    telemetry = BridgeTelemetry(str(output_path))
+
+    telemetry.emit(
+        "bridge_session_started",
+        room="call-room",
+        provider="codex",
+        workdir="/tmp/repo",
+    )
+    telemetry.emit("turn_opened", turn_id="turn-123", transcript="hello")
+    telemetry.emit(
+        "bridge_status_started", turn_id="turn-123", message="I'm checking that now."
+    )
+    telemetry.emit("model_first_chunk_ready", turn_id="turn-123", latency_ms=1234.5)
+    telemetry.emit("model_speech_chunk", turn_id="turn-123", text="Hello there.")
+    telemetry.emit(
+        "model_turn_finished",
+        turn_id="turn-123",
+        completed=True,
+        saw_text=True,
+        latency_ms=2345.6,
+        error_message=None,
+    )
+    telemetry.emit(
+        "livekit_session_closed", reason="participant_disconnected", error=None
+    )
+
+    latest_summary = (tmp_path / "latest-call.md").read_text(encoding="utf-8")
+    assert "Status: Ended" in latest_summary
+    assert "Provider: codex" in latest_summary
+    assert "User: hello" in latest_summary
+    assert "Agent:" in latest_summary
+    assert "Hello there." in latest_summary
+    assert "First Spoken Chunk: 1234.5 ms" in latest_summary
+    assert "Close Reason: participant_disconnected" in latest_summary
+
+    history_files = list((tmp_path / "calls").glob("*.md"))
+    assert len(history_files) == 1

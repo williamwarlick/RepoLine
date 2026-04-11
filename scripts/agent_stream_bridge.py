@@ -29,7 +29,7 @@ async def main() -> int:
     parser.add_argument("prompt", help="Prompt to send to the configured coding CLI.")
     parser.add_argument(
         "--provider",
-        choices=("claude", "codex"),
+        choices=("claude", "codex", "cursor"),
         default="claude",
         help="Which coding CLI to run.",
     )
@@ -51,6 +51,10 @@ async def main() -> int:
         help="Optional model alias or full model name.",
     )
     parser.add_argument(
+        "--thinking-level",
+        help="Optional provider thinking / reasoning level.",
+    )
+    parser.add_argument(
         "--working-directory",
         help="Directory the coding CLI should treat as its working root.",
     )
@@ -69,6 +73,7 @@ async def main() -> int:
         resume_session_id=args.resume_session_id,
         system_prompt=args.system_prompt,
         model=args.model,
+        thinking_level=args.thinking_level,
         working_directory=args.working_directory,
         chunk_chars=args.chunk_chars,
     )

@@ -1,11 +1,24 @@
 #!/usr/bin/env bun
 
+import {
+  cancel as clackCancel,
+  confirm as clackConfirm,
+  intro,
+  isCancel,
+  note,
+  outro,
+  select as clackSelect,
+  spinner as clackSpinner,
+  text as clackText,
+} from '@clack/prompts';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import {
+  closeSync,
   cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -14,7 +27,6 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
-import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
 type LiveKitProject = {
@@ -32,13 +44,15 @@ type PhoneConfig = {
   dispatchRuleId: string;
 };
 
+type BridgeProvider = 'claude' | 'codex' | 'cursor';
+
 type SetupState = {
   configured_at: string;
   livekit_project_name: string;
   livekit_url: string;
   agent_name: string;
-  bridge_provider: string;
-  claude_workdir: string;
+  bridge_provider: BridgeProvider;
+  workdir: string;
   phone: PhoneConfig | null;
 };
 
@@ -47,8 +61,8 @@ type RawState = {
   livekit_project_name: string;
   livekit_url: string;
   agent_name: string;
-  bridge_provider?: string;
-  claude_workdir: string;
+  bridge_provider: string;
+  workdir: string;
   phone?: {
     number: string;
     pin: string;
@@ -72,6 +86,11 @@ type DispatchRuleRecord = {
   inboundNumbers?: string[];
 };
 
+type PromptOption = {
+  label: string;
+  hint?: string;
+};
+
 const __filename = fileURLToPath(import.meta.url);
 const REPO_ROOT = resolve(dirname(__filename), '..');
 const AGENT_DIR = join(REPO_ROOT, 'agent');
@@ -80,16 +99,24 @@ const AGENT_ENV_PATH = join(AGENT_DIR, '.env.local');
 const FRONTEND_ENV_PATH = join(FRONTEND_DIR, '.env.local');
 const STATE_DIR = join(REPO_ROOT, '.bridge');
 const STATE_PATH = join(STATE_DIR, 'state.json');
+const RUNTIME_LOG_DIR = join(STATE_DIR, 'runtime');
+const AGENT_DEV_LOG_PATH = join(RUNTIME_LOG_DIR, 'agent-dev.log');
+const AGENT_LIVE_LOG_PATH = join(RUNTIME_LOG_DIR, 'agent-live.log');
+const FRONTEND_DEV_LOG_PATH = join(RUNTIME_LOG_DIR, 'frontend-dev.log');
+const FRONTEND_LIVE_LOG_PATH = join(RUNTIME_LOG_DIR, 'frontend-live.log');
+const LATEST_CALL_SUMMARY_PATH = join(AGENT_DIR, 'logs', 'latest-call.md');
+const CALL_HISTORY_DIR = join(AGENT_DIR, 'logs', 'calls');
 const PHONE_NUMBER_STATUS_ACTIVE = 'PHONE_NUMBER_STATUS_ACTIVE';
 const REPOLINE_SKILL_NAME = 'repoline-voice-session';
 const REPOLINE_SKILL_SOURCE_DIR = join(REPO_ROOT, 'skills', REPOLINE_SKILL_NAME);
 const REPOLINE_SKILL_SOURCE_PATH = join(REPOLINE_SKILL_SOURCE_DIR, 'SKILL.md');
+const REPOLINE_CURSOR_RULE_SOURCE_PATH = join(REPOLINE_SKILL_SOURCE_DIR, 'cursor-rule.mdc');
 
 class BridgeCliError extends Error {}
 
 const command = process.argv[2];
 
-if (!command || !['setup', 'dev', 'doctor'].includes(command)) {
+if (!command || !['setup', 'dev', 'live', 'doctor'].includes(command)) {
   printHelp();
   process.exit(command ? 1 : 0);
 }
@@ -102,6 +129,9 @@ try {
     case 'dev':
       await devCommand();
       break;
+    case 'live':
+      await liveCommand();
+      break;
     case 'doctor':
       doctorCommand();
       break;
@@ -113,15 +143,15 @@ try {
 }
 
 function printHelp(): void {
-  console.log(`Usage: bun run ${basename(__filename)} <setup|dev|doctor>`);
+  console.log(`Usage: bun run ${basename(__filename)} <setup|dev|live|doctor>`);
 }
 
 async function setupCommand(): Promise<void> {
-  console.log('RepoLine setup');
-  console.log(
-    'This will write local env files, install dependencies, and optionally wire a project phone number.'
+  intro('RepoLine');
+  note(
+    'This will write local env files, install the RepoLine voice skill into your selected repo, install dependencies, and optionally wire a project phone number.',
+    'Setup'
   );
-  console.log();
 
   requireTools('lk', 'uv', 'bun');
 
@@ -132,7 +162,8 @@ async function setupCommand(): Promise<void> {
   const ui = createPrompter();
   try {
     const bridgeProvider = await selectBridgeProvider(ui, agentEnv, existingState);
-    requireTools(bridgeProvider);
+    requireTools(providerExecutable(bridgeProvider));
+    await ensureProviderAuthenticated(ui, bridgeProvider);
 
     const project = await selectLiveKitProject(ui, agentEnv);
     const projectNumbers = listPhoneNumbers(project.name);
@@ -142,11 +173,8 @@ async function setupCommand(): Promise<void> {
       existingState?.agent_name ??
       'clawdbot-agent';
     const agentName = await ui.promptText('LiveKit agent name', agentNameDefault);
-    const claudeWorkdir = await selectWorkdir(
-      ui,
-      agentEnv.BRIDGE_WORKDIR ?? agentEnv.CLAUDE_WORKDIR ?? existingState?.claude_workdir ?? null
-    );
-    const skillInstall = installRepoLineSkill(bridgeProvider, claudeWorkdir);
+    const workdir = await selectWorkdir(ui, agentEnv.BRIDGE_WORKDIR ?? existingState?.workdir ?? null);
+    const skillInstall = installRepoLineSkill(bridgeProvider, workdir);
 
     let phoneConfig: PhoneConfig | null = null;
     const shouldSetupPhone = await ui.promptBool(
@@ -167,7 +195,7 @@ async function setupCommand(): Promise<void> {
       project,
       agentName,
       bridgeProvider,
-      claudeWorkdir,
+      workdir,
       existingAgentEnv: agentEnv,
       existingFrontendEnv: frontendEnv,
     });
@@ -178,74 +206,101 @@ async function setupCommand(): Promise<void> {
       livekit_url: project.url,
       agent_name: agentName,
       bridge_provider: bridgeProvider,
-      claude_workdir: claudeWorkdir,
+      workdir,
       phone: phoneConfig,
     });
 
-    console.log();
-    console.log('Installing dependencies and pre-downloading agent assets...');
+    const installSpinner = clackSpinner();
+    installSpinner.start('Installing dependencies and pre-downloading agent assets');
     runChecked(['uv', 'sync'], {
       cwd: AGENT_DIR,
+      captureOutput: true,
       envOverrides: { VIRTUAL_ENV: null },
     });
     runChecked(['uv', 'run', 'python', 'src/agent.py', 'download-files'], {
       cwd: AGENT_DIR,
+      captureOutput: true,
       envOverrides: { VIRTUAL_ENV: null },
     });
-    runChecked(['bun', 'install'], { cwd: FRONTEND_DIR });
+    runChecked(['bun', 'install'], {
+      cwd: FRONTEND_DIR,
+      captureOutput: true,
+    });
+    installSpinner.stop('Dependencies installed');
 
-    console.log();
-    console.log('Setup complete.');
-    console.log(`- LiveKit project: ${project.name}`);
-    console.log(`- Coding CLI: ${formatBridgeProvider(bridgeProvider)}`);
-    console.log(`- Workdir: ${claudeWorkdir}`);
-    console.log(`- RepoLine skill: ${skillInstall.targetPath} (${skillInstall.method})`);
-    console.log(`- Agent name: ${agentName}`);
+    const summaryLines = [
+      `LiveKit project: ${project.name}`,
+      `Coding CLI: ${formatBridgeProvider(bridgeProvider)}`,
+      `Workdir: ${workdir}`,
+      `RepoLine instructions: ${skillInstall.targetPath} (${skillInstall.method})`,
+      `Agent name: ${agentName}`,
+    ];
     if (phoneConfig) {
-      console.log(`- Call this number to chat: ${phoneConfig.number}`);
-      console.log(`- Caller PIN: ${phoneConfig.pin}`);
-      console.log(`- Dispatch rule: ${phoneConfig.dispatchRuleName}`);
+      summaryLines.push(`Dispatch rule: ${phoneConfig.dispatchRuleName}`);
     }
-    console.log('- Next step: bun run dev');
+    note(summaryLines.join('\n'), 'Setup complete');
+    if (phoneConfig) {
+      note(formatPhoneInstructions(phoneConfig), 'Call In');
+    }
+    outro('Starting RepoLine live...');
   } finally {
     ui.close();
   }
+
+  await liveCommand();
 }
 
 async function devCommand(): Promise<void> {
+  await runRuntimeCommand('dev');
+}
+
+async function liveCommand(): Promise<void> {
+  await runRuntimeCommand('live');
+}
+
+async function runRuntimeCommand(mode: 'dev' | 'live'): Promise<void> {
   if (!existsSync(AGENT_ENV_PATH) || !existsSync(FRONTEND_ENV_PATH)) {
     throw new BridgeCliError('run `bun run setup` first.');
   }
 
   requireTools('uv', 'bun');
+  const state = loadState();
+  prepareCallSummaryArtifacts();
 
-  const children = [
-    spawnProcess(['uv', 'run', 'python', 'src/agent.py', 'dev'], {
+  const processes = [
+    spawnProcess(['uv', 'run', 'python', 'src/agent.py', mode === 'live' ? 'start' : 'dev'], {
       cwd: AGENT_DIR,
+      label: mode === 'live' ? 'RepoLine agent (live)' : 'RepoLine agent (dev)',
+      logPath: mode === 'live' ? AGENT_LIVE_LOG_PATH : AGENT_DEV_LOG_PATH,
       envOverrides: { PYTHONUNBUFFERED: '1', VIRTUAL_ENV: null },
     }),
     spawnProcess(['bun', 'run', 'dev:network'], {
       cwd: FRONTEND_DIR,
+      label: mode === 'live' ? 'RepoLine frontend (live)' : 'RepoLine frontend (dev)',
+      logPath: mode === 'live' ? FRONTEND_LIVE_LOG_PATH : FRONTEND_DEV_LOG_PATH,
     }),
   ];
+  printRuntimeInfo(state, mode);
 
   let settled = false;
   const terminateAll = (signal: NodeJS.Signals) => {
-    for (const child of children) {
+    for (const processInfo of processes) {
+      const child = processInfo.child;
       if (child.exitCode === null) {
         child.kill(signal);
       }
     }
   };
 
-  const cleanupAndExit = async (code: number) => {
+  const cleanupAndExit = async (code: number, childSignal: NodeJS.Signals) => {
     if (settled) {
       return;
     }
     settled = true;
-    terminateAll('SIGTERM');
+    terminateAll(childSignal);
     await Bun.sleep(500);
-    for (const child of children) {
+    for (const processInfo of processes) {
+      const child = processInfo.child;
       if (child.exitCode === null) {
         child.kill('SIGKILL');
       }
@@ -253,20 +308,68 @@ async function devCommand(): Promise<void> {
     process.exit(code);
   };
 
-  process.once('SIGINT', () => void cleanupAndExit(130));
-  process.once('SIGTERM', () => void cleanupAndExit(143));
+  process.once('SIGINT', () => void cleanupAndExit(0, 'SIGINT'));
+  process.once('SIGTERM', () => void cleanupAndExit(0, 'SIGTERM'));
 
   await Promise.race(
-    children.map(
-      (child) =>
+    processes.map(
+      (processInfo) =>
         new Promise<void>((resolve) => {
+          const child = processInfo.child;
           child.once('exit', (code) => {
-            void cleanupAndExit(code ?? 1);
+            if (!settled && (code ?? 0) !== 0) {
+              console.error(
+                `${processInfo.label} exited with code ${code ?? 'unknown'}. See ${processInfo.logPath}`
+              );
+            }
+            void cleanupAndExit(code ?? 1, 'SIGTERM');
             resolve();
           });
         })
     )
   );
+}
+
+function printRuntimeInfo(state: SetupState | null, mode: 'dev' | 'live'): void {
+  const lines = [
+    mode === 'live' ? 'RepoLine is running in live mode.' : 'RepoLine is running in dev mode.',
+    '',
+  ];
+
+  if (state?.phone) {
+    lines.push(`Call this number: ${state.phone.number}`);
+    lines.push(`Enter PIN ${state.phone.pin}, then press #`);
+    lines.push('');
+  }
+
+  if (mode === 'live') {
+    lines.push('Agent watcher: disabled');
+    lines.push('Recommended while other agents are editing the repo.');
+  } else {
+    lines.push('WARNING: active calls may reset when watched files change.');
+    lines.push('Agent watcher: enabled');
+    lines.push('Use this only when you want hot reloads during local development.');
+  }
+  lines.push('');
+  lines.push('Browser UI: http://localhost:3000');
+  lines.push(`Latest call summary: ${LATEST_CALL_SUMMARY_PATH}`);
+  lines.push(`Call history: ${CALL_HISTORY_DIR}`);
+  lines.push(`Agent log: ${mode === 'live' ? AGENT_LIVE_LOG_PATH : AGENT_DEV_LOG_PATH}`);
+  lines.push(`Frontend log: ${mode === 'live' ? FRONTEND_LIVE_LOG_PATH : FRONTEND_DEV_LOG_PATH}`);
+  lines.push('');
+  lines.push('Press Ctrl+C to stop.');
+
+  console.log(lines.join('\n'));
+}
+
+function prepareCallSummaryArtifacts(): void {
+  mkdirSync(CALL_HISTORY_DIR, { recursive: true });
+  if (!existsSync(LATEST_CALL_SUMMARY_PATH)) {
+    writeFileSync(
+      LATEST_CALL_SUMMARY_PATH,
+      '# RepoLine Call Summary\n\nNo calls captured yet.\n',
+    );
+  }
 }
 
 function doctorCommand(): void {
@@ -276,38 +379,42 @@ function doctorCommand(): void {
   checks.push(checkFileExists('Frontend env', FRONTEND_ENV_PATH));
   checks.push(checkFileExists('Frontend Bun lockfile', join(FRONTEND_DIR, 'bun.lock')));
   checks.push(checkFileExists('RepoLine voice skill source', REPOLINE_SKILL_SOURCE_PATH));
+  checks.push(checkFileExists('RepoLine Cursor rule source', REPOLINE_CURSOR_RULE_SOURCE_PATH));
 
   const agentEnv = loadEnvFile(AGENT_ENV_PATH);
   const frontendEnv = loadEnvFile(FRONTEND_ENV_PATH);
   const state = loadState();
-  const bridgeProvider = normalizeBridgeProvider(
-    agentEnv.BRIDGE_CLI_PROVIDER ?? state?.bridge_provider ?? 'claude'
-  );
-  const workdir = agentEnv.BRIDGE_WORKDIR ?? agentEnv.CLAUDE_WORKDIR ?? state?.claude_workdir ?? '';
-  const repolineSkillName = agentEnv.REPOLINE_SKILL_NAME ?? REPOLINE_SKILL_NAME;
+  const bridgeProviderRaw = agentEnv.BRIDGE_CLI_PROVIDER ?? '';
+  const bridgeProvider = bridgeProviderRaw ? normalizeBridgeProvider(bridgeProviderRaw) : null;
+  const workdir = agentEnv.BRIDGE_WORKDIR ?? '';
+  const repolineSkillName = agentEnv.REPOLINE_SKILL_NAME ?? '';
 
-  for (const tool of [bridgeProvider, 'lk', 'uv', 'bun']) {
+  const requiredTools = bridgeProvider
+    ? [providerExecutable(bridgeProvider), 'lk', 'uv', 'bun']
+    : ['lk', 'uv', 'bun'];
+  for (const tool of requiredTools) {
     checks.push(checkCommandAvailable(tool));
   }
 
   for (const key of ['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'LIVEKIT_AGENT_NAME']) {
     checks.push(checkEnvKey('Agent env', agentEnv, key));
   }
-  checks.push(
-    checkAnyEnvKey('Agent env bridge provider', agentEnv, ['BRIDGE_CLI_PROVIDER'], bridgeProvider)
-  );
-  checks.push(
-    checkAnyEnvKey('Agent env bridge workdir', agentEnv, ['BRIDGE_WORKDIR', 'CLAUDE_WORKDIR'])
-  );
-  checks.push(
-    checkAnyEnvKey('Agent env RepoLine skill', agentEnv, ['REPOLINE_SKILL_NAME'], repolineSkillName)
-  );
+  checks.push(checkEnvKey('Agent env', agentEnv, 'BRIDGE_CLI_PROVIDER'));
+  checks.push(checkEnvKey('Agent env', agentEnv, 'BRIDGE_WORKDIR'));
+  checks.push(checkEnvKey('Agent env', agentEnv, 'REPOLINE_SKILL_NAME'));
 
   for (const key of ['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'AGENT_NAME']) {
     checks.push(checkEnvKey('Frontend env', frontendEnv, key));
   }
 
-  checks.push(runStatusCheck(`${formatBridgeProvider(bridgeProvider)} auth`, bridgeAuthCommand(bridgeProvider), REPO_ROOT));
+  if (bridgeProvider) {
+    const authStatus = getProviderAuthStatus(bridgeProvider);
+    checks.push({
+      name: `${formatBridgeProvider(bridgeProvider)} auth`,
+      ok: authStatus.ok,
+      detail: authStatus.detail,
+    });
+  }
   checks.push(
     runStatusCheck('Agent dependencies', ['uv', 'sync', '--check'], AGENT_DIR, {
       VIRTUAL_ENV: null,
@@ -350,14 +457,30 @@ function spawnProcess(
   cmd: string[],
   options: {
     cwd: string;
+    label: string;
+    logPath: string;
     envOverrides?: Record<string, string | null>;
   }
-): ChildProcess {
-  return spawn(cmd[0], cmd.slice(1), {
+): { child: ChildProcess; label: string; logPath: string } {
+  mkdirSync(dirname(options.logPath), { recursive: true });
+  writeFileSync(
+    options.logPath,
+    `# ${options.label}\n# Command: ${cmd.join(' ')}\n# Started: ${new Date().toISOString()}\n\n`
+  );
+  const fd = openSync(options.logPath, 'a');
+  const child = spawn(cmd[0], cmd.slice(1), {
     cwd: options.cwd,
-    stdio: 'inherit',
+    stdio: ['ignore', fd, fd],
     env: buildEnv(options.envOverrides),
   });
+  child.once('exit', () => {
+    closeSync(fd);
+  });
+  return {
+    child,
+    label: options.label,
+    logPath: options.logPath,
+  };
 }
 
 function selectDispatchRule(
@@ -399,7 +522,10 @@ async function selectLiveKitProject(
 
   const selection = await ui.selectOption(
     'Choose the linked LiveKit project',
-    projects.map((project) => `${project.name} (${project.url})`),
+    projects.map((project) => ({
+      label: project.name,
+      hint: project.url,
+    })),
     defaultIndex
   );
   return projects[selection];
@@ -410,8 +536,14 @@ async function selectWorkdir(
   existingWorkdir: string | null
 ): Promise<string> {
   const candidates = discoverRepoCandidates(existingWorkdir);
-  const options = candidates.map((candidate) => `${basename(candidate)} (${candidate})`);
-  options.push('Enter a path manually');
+  const options = candidates.map((candidate) => ({
+    label: basename(candidate),
+    hint: candidate,
+  }));
+  options.push({
+    label: 'Enter a path manually',
+    hint: 'Type any absolute path or ~/ path',
+  });
 
   const selection = await ui.selectOption('Choose the coding CLI workdir', options, 0);
   if (selection === candidates.length) {
@@ -421,7 +553,7 @@ async function selectWorkdir(
       if (isDirectory(resolved)) {
         return resolved;
       }
-      console.log(`Path does not exist: ${resolved}`);
+      note(`Path does not exist: ${resolved}`, 'Try again');
     }
   }
 
@@ -517,12 +649,14 @@ async function configurePhone(
       ],
       {
         cwd: REPO_ROOT,
+        captureOutput: true,
         stdinText: JSON.stringify(dispatchPayload),
       }
     );
   } else {
     runChecked(['lk', '--project', project.name, 'sip', 'dispatch', 'create', '-'], {
       cwd: REPO_ROOT,
+      captureOutput: true,
       stdinText: JSON.stringify({ dispatch_rule: dispatchPayload }),
     });
   }
@@ -553,7 +687,7 @@ async function choosePhoneNumber(
 
   if (numbers.length === 1) {
     const phoneNumber = numbers[0].e164Format;
-    console.log(`Using project phone number: ${phoneNumber}`);
+    note(`Using the only active project number: ${phoneNumber}`, 'Phone number');
     return phoneNumber;
   }
 
@@ -567,7 +701,10 @@ async function choosePhoneNumber(
 
   const selection = await ui.selectOption(
     'Choose the project phone number to attach',
-    numbers.map((item) => formatPhoneNumberOption(item)),
+    numbers.map((item) => ({
+      label: item.e164Format,
+      hint: formatPhoneNumberOption(item),
+    })),
     defaultIndex
   );
   return numbers[selection].e164Format;
@@ -592,15 +729,15 @@ async function promptPin(
     if (/^\d{4}$/.test(value)) {
       return value;
     }
-    console.log('PIN must be exactly 4 digits.');
+    note('PIN must be exactly 4 digits.', 'Try again');
   }
 }
 
 function writeEnvFiles(options: {
   project: LiveKitProject;
   agentName: string;
-  bridgeProvider: string;
-  claudeWorkdir: string;
+  bridgeProvider: BridgeProvider;
+  workdir: string;
   existingAgentEnv: Record<string, string>;
   existingFrontendEnv: Record<string, string>;
 }): void {
@@ -610,32 +747,17 @@ function writeEnvFiles(options: {
     LIVEKIT_API_SECRET: options.project.apiSecret,
     LIVEKIT_AGENT_NAME: options.agentName,
     BRIDGE_CLI_PROVIDER: options.bridgeProvider,
-    BRIDGE_WORKDIR: options.claudeWorkdir,
-    BRIDGE_MODEL:
-      options.existingAgentEnv.BRIDGE_MODEL ?? options.existingAgentEnv.CLAUDE_MODEL ?? '',
+    BRIDGE_WORKDIR: options.workdir,
+    BRIDGE_MODEL: options.existingAgentEnv.BRIDGE_MODEL ?? '',
+    BRIDGE_THINKING_LEVEL:
+      options.existingAgentEnv.BRIDGE_THINKING_LEVEL ??
+      options.existingAgentEnv.BRIDGE_CODEX_REASONING_EFFORT ??
+      'low',
+    BRIDGE_ACCESS_POLICY: options.existingAgentEnv.BRIDGE_ACCESS_POLICY ?? 'readonly',
     REPOLINE_SKILL_NAME:
       options.existingAgentEnv.REPOLINE_SKILL_NAME ?? REPOLINE_SKILL_NAME,
-    BRIDGE_SYSTEM_PROMPT:
-      options.existingAgentEnv.BRIDGE_SYSTEM_PROMPT ??
-      options.existingAgentEnv.CLAUDE_SYSTEM_PROMPT ??
-      '',
-    BRIDGE_CHUNK_CHARS:
-      options.existingAgentEnv.BRIDGE_CHUNK_CHARS ??
-      options.existingAgentEnv.CLAUDE_CHUNK_CHARS ??
-      '140',
-    CLAUDE_WORKDIR: options.claudeWorkdir,
-    CLAUDE_MODEL:
-      options.existingAgentEnv.CLAUDE_MODEL ?? options.existingAgentEnv.BRIDGE_MODEL ?? '',
-    CLAUDE_SYSTEM_PROMPT:
-      options.existingAgentEnv.CLAUDE_SYSTEM_PROMPT ??
-      options.existingAgentEnv.BRIDGE_SYSTEM_PROMPT ??
-      '',
-    CLAUDE_CHUNK_CHARS:
-      options.existingAgentEnv.CLAUDE_CHUNK_CHARS ??
-      options.existingAgentEnv.BRIDGE_CHUNK_CHARS ??
-      '140',
-    CODEX_DANGEROUSLY_BYPASS_APPROVALS_AND_SANDBOX:
-      options.existingAgentEnv.CODEX_DANGEROUSLY_BYPASS_APPROVALS_AND_SANDBOX ?? 'true',
+    BRIDGE_SYSTEM_PROMPT: options.existingAgentEnv.BRIDGE_SYSTEM_PROMPT ?? '',
+    BRIDGE_CHUNK_CHARS: options.existingAgentEnv.BRIDGE_CHUNK_CHARS ?? '140',
     FINAL_TRANSCRIPT_DEBOUNCE_SECONDS:
       options.existingAgentEnv.FINAL_TRANSCRIPT_DEBOUNCE_SECONDS ?? '0.85',
     LIVEKIT_STT_MODEL: options.existingAgentEnv.LIVEKIT_STT_MODEL ?? 'deepgram/nova-3',
@@ -722,13 +844,24 @@ function loadState(): SetupState | null {
     return null;
   }
   const rawState = JSON.parse(readFileSync(STATE_PATH, 'utf8')) as RawState;
+  if (
+    !rawState.bridge_provider ||
+    !rawState.workdir ||
+    !rawState.livekit_project_name ||
+    !rawState.livekit_url ||
+    !rawState.agent_name
+  ) {
+    throw new BridgeCliError(
+      'existing .bridge/state.json is from the pre-cutover shape; rerun `bun run setup` to regenerate it'
+    );
+  }
   return {
     configured_at: rawState.configured_at,
     livekit_project_name: rawState.livekit_project_name,
     livekit_url: rawState.livekit_url,
     agent_name: rawState.agent_name,
-    bridge_provider: normalizeBridgeProvider(rawState.bridge_provider ?? 'claude'),
-    claude_workdir: rawState.claude_workdir,
+    bridge_provider: normalizeBridgeProvider(rawState.bridge_provider),
+    workdir: rawState.workdir,
     phone: rawState.phone
       ? {
           number: rawState.phone.number,
@@ -752,39 +885,195 @@ async function selectBridgeProvider(
   ui: ReturnType<typeof createPrompter>,
   agentEnv: Record<string, string>,
   existingState: SetupState | null
-): Promise<string> {
+): Promise<BridgeProvider> {
   const provider = normalizeBridgeProvider(
     agentEnv.BRIDGE_CLI_PROVIDER ?? existingState?.bridge_provider ?? 'claude'
   );
-  const options = ['Claude Code', 'Codex CLI'];
+  const options = [
+    {
+      label: 'Claude Code',
+      hint: 'Uses claude auth and installs the skill into .claude/skills',
+    },
+    {
+      label: 'Codex CLI',
+      hint: 'Uses codex login and installs the skill into .agents/skills',
+    },
+    {
+      label: 'Cursor Agent',
+      hint: 'Uses cursor-agent auth and installs the rule into .cursor/rules',
+    },
+  ];
   const selection = await ui.selectOption(
     'Choose the coding CLI',
     options,
-    provider === 'claude' ? 0 : 1
+    provider === 'claude' ? 0 : provider === 'codex' ? 1 : 2
   );
-  return selection === 0 ? 'claude' : 'codex';
+  if (selection === 0) {
+    return 'claude';
+  }
+  if (selection === 1) {
+    return 'codex';
+  }
+  return 'cursor';
 }
 
-function normalizeBridgeProvider(value: string): string {
-  return value.trim().toLowerCase() === 'codex' ? 'codex' : 'claude';
+function normalizeBridgeProvider(value: string): BridgeProvider {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'codex') {
+    return 'codex';
+  }
+  if (normalized === 'cursor' || normalized === 'cursor-agent') {
+    return 'cursor';
+  }
+  return 'claude';
 }
 
-function formatBridgeProvider(provider: string): string {
-  return provider === 'codex' ? 'Codex CLI' : 'Claude Code';
+function formatBridgeProvider(provider: BridgeProvider): string {
+  if (provider === 'codex') {
+    return 'Codex CLI';
+  }
+  if (provider === 'cursor') {
+    return 'Cursor Agent';
+  }
+  return 'Claude Code';
 }
 
-function bridgeAuthCommand(provider: string): string[] {
-  return provider === 'codex'
-    ? ['codex', 'login', 'status']
-    : ['claude', 'auth', 'status'];
+function providerExecutable(provider: BridgeProvider): string {
+  if (provider === 'cursor') {
+    return 'cursor-agent';
+  }
+  return provider;
+}
+
+function bridgeAuthCommand(provider: BridgeProvider): string[] {
+  if (provider === 'codex') {
+    return ['codex', 'login', 'status'];
+  }
+  if (provider === 'cursor') {
+    return ['cursor-agent', 'status'];
+  }
+  return ['claude', 'auth', 'status'];
+}
+
+function bridgeLoginCommand(provider: BridgeProvider): string[] {
+  if (provider === 'codex') {
+    return ['codex', 'login'];
+  }
+  if (provider === 'cursor') {
+    return ['cursor-agent', 'login'];
+  }
+  return ['claude', 'auth', 'login'];
+}
+
+function getProviderAuthStatus(provider: BridgeProvider): { ok: boolean; detail: string } {
+  try {
+    const result = runChecked(bridgeAuthCommand(provider), {
+      cwd: REPO_ROOT,
+      captureOutput: true,
+    });
+    const output = stripAnsi(`${result.stdout}\n${result.stderr}`).trim();
+
+    if (provider === 'claude') {
+      try {
+        const payload = JSON.parse(output) as { loggedIn?: boolean; email?: string | null };
+        if (payload.loggedIn === true) {
+          return { ok: true, detail: payload.email ?? 'ok' };
+        }
+        if (payload.loggedIn === false) {
+          return { ok: false, detail: output || 'Not logged in' };
+        }
+      } catch {}
+    }
+
+    const normalizedOutput = output.toLowerCase();
+    if (
+      normalizedOutput.includes('not logged in') ||
+      normalizedOutput.includes('not authenticated') ||
+      normalizedOutput.includes('signed out') ||
+      normalizedOutput.includes('login required')
+    ) {
+      return { ok: false, detail: output || 'Not logged in' };
+    }
+
+    if (normalizedOutput.includes('logged in')) {
+      return { ok: true, detail: output || 'ok' };
+    }
+
+    return { ok: true, detail: output || 'ok' };
+  } catch (error) {
+    return {
+      ok: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function ensureProviderAuthenticated(
+  ui: ReturnType<typeof createPrompter>,
+  provider: BridgeProvider
+): Promise<void> {
+  const status = getProviderAuthStatus(provider);
+  if (status.ok) {
+    return;
+  }
+
+  note(
+    `${formatBridgeProvider(provider)} is not authenticated yet.\n${status.detail}`,
+    'Auth required'
+  );
+
+  const shouldLogin = await ui.promptBool(`Run ${formatBridgeProvider(provider)} login now?`, true);
+  if (!shouldLogin) {
+    throw new BridgeCliError(
+      `${formatBridgeProvider(provider)} authentication is required before setup can continue.`
+    );
+  }
+
+  note(
+    'Complete the login flow in this terminal or the browser window it opens, then setup will continue.',
+    'Login'
+  );
+  runChecked(bridgeLoginCommand(provider), {
+    cwd: REPO_ROOT,
+    captureOutput: false,
+  });
+
+  const refreshedStatus = getProviderAuthStatus(provider);
+  if (!refreshedStatus.ok) {
+    throw new BridgeCliError(
+      `${formatBridgeProvider(provider)} still is not authenticated: ${refreshedStatus.detail}`
+    );
+  }
 }
 
 function installRepoLineSkill(
-  provider: string,
+  provider: BridgeProvider,
   workdir: string
-): { method: 'existing' | 'symlink' | 'copy'; targetPath: string } {
+): { method: 'existing' | 'symlink' | 'copy' | 'generated'; targetPath: string } {
   if (!existsSync(REPOLINE_SKILL_SOURCE_PATH)) {
     throw new BridgeCliError(`RepoLine skill source not found: ${REPOLINE_SKILL_SOURCE_PATH}`);
+  }
+
+  if (provider === 'cursor') {
+    if (!existsSync(REPOLINE_CURSOR_RULE_SOURCE_PATH)) {
+      throw new BridgeCliError(
+        `RepoLine Cursor rule source not found: ${REPOLINE_CURSOR_RULE_SOURCE_PATH}`
+      );
+    }
+
+    const targetRoot = join(workdir, ...projectSkillPath(provider));
+    const targetPath = join(targetRoot, `${REPOLINE_SKILL_NAME}.mdc`);
+    mkdirSync(targetRoot, { recursive: true });
+
+    if (existsSync(targetPath)) {
+      if (!isRepoLineCursorRule(targetPath, REPOLINE_SKILL_NAME)) {
+        throw new BridgeCliError(`existing path is not a RepoLine rule install: ${targetPath}`);
+      }
+      return { method: 'existing', targetPath };
+    }
+
+    writeFileSync(targetPath, readFileSync(REPOLINE_CURSOR_RULE_SOURCE_PATH, 'utf8'));
+    return { method: 'generated', targetPath };
   }
 
   const targetRoot = join(workdir, ...projectSkillPath(provider));
@@ -807,8 +1096,14 @@ function installRepoLineSkill(
   }
 }
 
-function projectSkillPath(provider: string): string[] {
-  return provider === 'codex' ? ['.agents', 'skills'] : ['.claude', 'skills'];
+function projectSkillPath(provider: BridgeProvider): string[] {
+  if (provider === 'codex') {
+    return ['.agents', 'skills'];
+  }
+  if (provider === 'cursor') {
+    return ['.cursor', 'rules'];
+  }
+  return ['.claude', 'skills'];
 }
 
 function isRepoLineSkillDirectory(pathValue: string, skillName: string): boolean {
@@ -819,6 +1114,15 @@ function isRepoLineSkillDirectory(pathValue: string, skillName: string): boolean
 
   const contents = readFileSync(skillPath, 'utf8');
   return new RegExp(`(^|\\n)name:\\s*${skillName}(\\n|$)`).test(contents);
+}
+
+function isRepoLineCursorRule(pathValue: string, skillName: string): boolean {
+  if (!existsSync(pathValue)) {
+    return false;
+  }
+
+  const contents = readFileSync(pathValue, 'utf8');
+  return pathValue.endsWith(`${skillName}.mdc`) && contents.includes('# RepoLine Voice Session');
 }
 
 function checkCommandAvailable(name: string): { name: string; ok: boolean; detail: string } {
@@ -851,56 +1155,42 @@ function checkEnvKey(
   };
 }
 
-function checkAnyEnvKey(
-  name: string,
-  env: Record<string, string>,
-  keys: string[],
-  fallbackValue?: string
-): { name: string; ok: boolean; detail: string } {
-  const matchedKey = keys.find((key) => (env[key] ?? '').length > 0);
-  if (matchedKey) {
-    return {
-      name,
-      ok: true,
-      detail: `${matchedKey} set`,
-    };
-  }
-
-  if ((fallbackValue ?? '').length > 0) {
-    return {
-      name,
-      ok: true,
-      detail: `defaulting to ${fallbackValue}`,
-    };
-  }
-
-  return {
-    name,
-    ok: false,
-    detail: `missing (${keys.join(' or ')})`,
-  };
-}
-
 function checkInstalledRepoLineSkill(
-  provider: string,
+  provider: BridgeProvider | null,
   workdir: string,
   skillName: string
 ): { name: string; ok: boolean; detail: string } {
+  if (!provider) {
+    return {
+      name: 'RepoLine instructions install',
+      ok: false,
+      detail: 'missing bridge provider',
+    };
+  }
+
   const targetPath = workdir
-    ? join(workdir, ...projectSkillPath(provider), skillName)
-    : join('<missing-workdir>', ...projectSkillPath(provider), skillName);
+    ? provider === 'cursor'
+      ? join(workdir, ...projectSkillPath(provider), `${skillName}.mdc`)
+      : join(workdir, ...projectSkillPath(provider), skillName)
+    : provider === 'cursor'
+      ? join('<missing-workdir>', ...projectSkillPath(provider), `${skillName}.mdc`)
+      : join('<missing-workdir>', ...projectSkillPath(provider), skillName);
 
   if (!workdir) {
     return {
-      name: 'RepoLine skill install',
+      name: 'RepoLine instructions install',
       ok: false,
       detail: 'missing workdir',
     };
   }
 
-  if (!isRepoLineSkillDirectory(targetPath, skillName)) {
+  const installed = provider === 'cursor'
+    ? isRepoLineCursorRule(targetPath, skillName)
+    : isRepoLineSkillDirectory(targetPath, skillName);
+
+  if (!installed) {
     return {
-      name: 'RepoLine skill install',
+      name: 'RepoLine instructions install',
       ok: false,
       detail: `missing ${targetPath}`,
     };
@@ -914,7 +1204,7 @@ function checkInstalledRepoLineSkill(
   } catch {}
 
   return {
-    name: 'RepoLine skill install',
+    name: 'RepoLine instructions install',
     ok: true,
     detail,
   };
@@ -924,14 +1214,23 @@ function runStatusCheck(
   name: string,
   cmd: string[],
   cwd: string,
-  envOverrides?: Record<string, string | null>
+  envOverrides?: Record<string, string | null>,
+  failurePatterns?: string[]
 ): { name: string; ok: boolean; detail: string } {
   try {
-    runChecked(cmd, {
+    const result = runChecked(cmd, {
       cwd,
       captureOutput: true,
       envOverrides,
     });
+    const combinedOutput = `${result.stdout}\n${result.stderr}`.trim().toLowerCase();
+    if (failurePatterns?.some((pattern) => combinedOutput.includes(pattern.toLowerCase()))) {
+      return {
+        name,
+        ok: false,
+        detail: result.stdout.trim() || result.stderr.trim() || 'status check reported a failure',
+      };
+    }
     return { name, ok: true, detail: 'ok' };
   } catch (error) {
     return {
@@ -940,6 +1239,10 @@ function runStatusCheck(
       detail: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '');
 }
 
 function checkPhoneState(state: SetupState): { name: string; ok: boolean; detail: string } {
@@ -1080,68 +1383,98 @@ function slugify(value: string): string {
     .replace(/^-|-$/g, '');
 }
 
-function createPrompter() {
-  const ui = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+function formatPhoneInstructions(phone: PhoneConfig): string {
+  return [
+    `Call this number from your phone now: ${emphasize(phone.number)}`,
+    `Enter this PIN: ${emphasize(phone.pin)}`,
+    `Then press ${emphasize('#')}`,
+  ].join('\n');
+}
 
+function emphasize(value: string): string {
+  return `\x1b[1m\x1b[36m${value}\x1b[0m`;
+}
+
+function createPrompter() {
   return {
     async promptText(prompt: string, defaultValue?: string): Promise<string> {
-      while (true) {
-        const suffix = defaultValue ? ` [${defaultValue}]` : '';
-        const answer = (await ui.question(`${prompt}${suffix}: `)).trim();
-        if (answer) {
-          return answer;
-        }
-        if (defaultValue !== undefined) {
-          return defaultValue;
-        }
-        console.log('A value is required.');
-      }
+      const answer = await clackText({
+        message: prompt,
+        placeholder: defaultValue,
+        defaultValue,
+        validate(value) {
+          if ((value ?? '').trim()) {
+            return;
+          }
+          if (defaultValue !== undefined) {
+            return;
+          }
+          return 'A value is required.';
+        },
+      });
+
+      return requirePromptValue(answer, defaultValue);
     },
 
     async promptBool(prompt: string, defaultValue: boolean): Promise<boolean> {
-      const hint = defaultValue ? 'Y/n' : 'y/N';
-      while (true) {
-        const answer = (await ui.question(`${prompt} [${hint}]: `)).trim().toLowerCase();
-        if (!answer) {
-          return defaultValue;
-        }
-        if (answer === 'y' || answer === 'yes') {
-          return true;
-        }
-        if (answer === 'n' || answer === 'no') {
-          return false;
-        }
-        console.log('Enter y or n.');
-      }
+      const answer = await clackConfirm({
+        message: prompt,
+        initialValue: defaultValue,
+        active: 'Yes',
+        inactive: 'No',
+      });
+
+      return requirePromptValue(answer);
     },
 
-    async selectOption(prompt: string, options: string[], defaultIndex = 0): Promise<number> {
+    async selectOption(
+      prompt: string,
+      options: Array<string | PromptOption>,
+      defaultIndex = 0
+    ): Promise<number> {
       if (options.length === 0) {
         throw new BridgeCliError(`no options available for: ${prompt}`);
       }
-      console.log(prompt);
-      for (const [index, option] of options.entries()) {
-        const marker = index === defaultIndex ? ' (default)' : '';
-        console.log(`  ${index + 1}. ${option}${marker}`);
-      }
-      while (true) {
-        const answer = (await ui.question('Select an option by number: ')).trim();
-        if (!answer) {
-          return defaultIndex;
-        }
-        const numeric = Number(answer);
-        if (Number.isInteger(numeric) && numeric >= 1 && numeric <= options.length) {
-          return numeric - 1;
-        }
-        console.log(`Enter a number between 1 and ${options.length}.`);
-      }
+      const answer = await clackSelect({
+        message: prompt,
+        initialValue: defaultIndex,
+        options: options.map((option, index) => {
+          const normalized =
+            typeof option === 'string'
+              ? { label: option, hint: undefined }
+              : option;
+          return {
+            value: index,
+            label: normalized.label,
+            hint: normalized.hint ?? (index === defaultIndex ? 'Default' : undefined),
+          };
+        }),
+      });
+
+      return requirePromptValue(answer);
     },
 
     close(): void {
-      ui.close();
+      // Clack prompts manage their own lifecycle.
     },
   };
+}
+
+function requirePromptValue<T>(value: T | symbol, defaultValue?: string): T {
+  if (isCancel(value)) {
+    clackCancel('Setup cancelled.');
+    process.exit(0);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed) {
+      return trimmed as T;
+    }
+    if (defaultValue !== undefined) {
+      return defaultValue as T;
+    }
+  }
+
+  return value;
 }

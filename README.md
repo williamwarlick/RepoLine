@@ -37,17 +37,17 @@ What it does well:
 
 - routes a LiveKit browser session or phone call into a local coding CLI workdir
 - speaks streamed CLI output as soon as the provider emits usable text
-- keeps setup short with `bun run setup`, `bun run dev`, and `bun run doctor`
+- keeps setup short with `bun run setup`, `bun run live`, `bun run dev`, and `bun run doctor`
 - auto-discovers linked LiveKit projects and existing project phone numbers
 - wires a 4-digit caller PIN and number-scoped SIP dispatch rule during setup
-- supports `claude` and `codex` today through a shared bridge layer
+- supports `claude`, `codex`, and `cursor` through a shared provider adapter layer
 - ships a `skills.sh`-compatible voice behavior skill for RepoLine sessions
 
 ## Quick Start
 
 Prerequisites:
 
-- `claude` or `codex` installed and authenticated
+- `claude`, `codex`, or `cursor-agent` installed and authenticated
 - `lk` installed and already linked to the LiveKit project you want to use
 - `uv`
 - `bun`
@@ -56,20 +56,28 @@ Run:
 
 ```bash
 bun run setup
-bun run dev
+bun run live
 bun run doctor
 ```
+
+Use `bun run live` for real calls while other agents may be editing the repo. It runs the voice agent without the LiveKit dev watcher, which avoids mid-call job reloads.
+
+Use `bun run dev` only when you explicitly want hot reload behavior while iterating on the bridge itself.
 
 The setup wizard:
 
 1. reads the LiveKit projects already linked in your `lk` CLI config
 2. lets you choose the target project
 3. lets you choose the coding CLI and repo workdir from discovered local git repos
-4. installs the project-scoped `repoline-voice-session` skill into that repo for the selected coding CLI
+4. installs the project-scoped RepoLine voice instructions into that repo for the selected coding CLI
 5. writes `agent/.env.local` and `frontend/.env.local`
 6. installs agent and frontend dependencies
 7. pre-downloads agent runtime files
 8. optionally wires inbound telephony from the project's existing LiveKit number
+
+If the selected coding CLI is installed but not authenticated yet, setup now stops and offers to launch that CLI's login flow before continuing.
+
+After setup finishes, RepoLine now starts in `live` mode by default instead of watcher-backed `dev` mode.
 
 If the selected LiveKit project has exactly one active phone number, setup uses it automatically. If it has multiple, setup asks which one to attach. If it has none, setup tells you and skips phone wiring until the project has a number.
 
@@ -104,7 +112,9 @@ During slower turns, RepoLine:
 
 RepoLine publishes a project-installable skill at [`skills/repoline-voice-session`](./skills/repoline-voice-session).
 
-It follows the `skills.sh` / Agent Skills format and defines how the coding agent should behave in spoken RepoLine sessions:
+It follows the `skills.sh` / Agent Skills format for Claude Code and Codex, and RepoLine also ships a Cursor rule file for `cursor-agent`.
+
+These instructions define how the coding agent should behave in spoken RepoLine sessions:
 
 - ear-friendly phrasing instead of screen-heavy formatting
 - one short sentence before tool work
@@ -117,6 +127,8 @@ To install it manually in another repo:
 npx skills add williamwarlick/RepoLine --skill repoline-voice-session -a claude-code -a codex
 ```
 
+For Cursor, copy [`skills/repoline-voice-session/cursor-rule.mdc`](./skills/repoline-voice-session/cursor-rule.mdc) into `.cursor/rules/repoline-voice-session.mdc` in the target repo, or let `bun run setup` install it.
+
 You can also inspect the skill locally:
 
 ```bash
@@ -125,7 +137,9 @@ npx skills add . --list
 
 ## From Your Phone
 
-`bun run dev` starts both the Python LiveKit agent and the Bun-run frontend. The frontend binds to `0.0.0.0` so you can open it from your phone on the same network.
+`bun run live` starts the Python LiveKit agent in non-watch mode and the Bun-run frontend. The frontend binds to `0.0.0.0` so you can open it from your phone on the same network.
+
+`bun run dev` starts the same stack, but keeps the LiveKit agent in watch mode and may reload active calls if files change.
 
 Open the frontend from your laptop first. Then open the same app from your phone using your laptop's LAN IP, for example:
 
@@ -141,6 +155,8 @@ RepoLine is intentionally local-first.
 
 - your coding CLI stays on your machine with access to your local repo
 - LiveKit handles voice transport and phone ingress
+- the bridge now defaults new setups to `BRIDGE_ACCESS_POLICY=readonly`
+- use `workspace-write` for sandboxed project edits, or `owner` only on a machine you fully control
 - the frontend token route is development-only and intentionally throws outside development
 - the local worker still has to be running for inbound phone calls to reach the CLI
 
@@ -201,6 +217,7 @@ http://127.0.0.1:9465/metrics
 
 - Claude Code still has the best partial-text path today. RepoLine can speak sentence chunks as soon as Claude emits stream deltas.
 - Codex CLI support currently uses `codex exec --json` / `codex exec resume --json`. In this repo's local testing, that surface exposes lifecycle events and final `agent_message` text, but not token deltas on stdout, so Codex speech starts after the final message arrives.
+- Cursor Agent support uses `cursor-agent -p --output-format stream-json`. It can stream full assistant messages and final results, but in local docs this is still coarser than Claude's token-delta path.
 - The backend still launches the coding CLI per user turn. Continuity stays with the provider session ID or thread ID, not through local transcript replay.
 - The browser path is the most polished entry point today.
 - Internet-facing deployment still needs a real auth layer for the frontend token route.
