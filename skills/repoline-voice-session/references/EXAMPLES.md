@@ -8,7 +8,7 @@ Less useful:
 
 Better:
 
-> I’m searching the repo for that now.
+> Opening the repo search now.
 
 ## Debugging A Failure
 
@@ -22,7 +22,7 @@ Better:
 
 Follow-up progress update:
 
-> I found the exception source. I’m checking why the guard didn’t catch it.
+> I found the exception source. Now I’m checking why the guard missed it.
 
 ## Editing Code
 
@@ -42,7 +42,7 @@ Less useful:
 
 Better:
 
-> I’m checking the entrypoint first, then I’ll verify the test coverage.
+> I’m starting with the entrypoint, then I’ll verify the test coverage.
 
 Later:
 

@@ -25,11 +25,12 @@ Make the session easy to follow by ear in real time.
 - Use natural language instead of visual scaffolding.
 - If a path or command matters, mention it once and move on.
 - Break complex work into short verbal checkpoints.
-- Prefer "I’m checking X now" to abstract meta commentary.
+- Prefer a concrete line tied to the actual action over abstract meta commentary.
+- Vary the phrasing when you do narrate work. Repeated stock openers sound fake.
 
 ## Good Status Lines
 
-- "I’m checking the server logs now."
+- "Opening the server logs now."
 - "I found the failing branch and I’m tracing the guard."
 - "I’m updating the config path now."
 
@@ -38,6 +39,7 @@ Make the session easy to follow by ear in real time.
 - "Working on it."
 - "Analyzing."
 - "Thinking..."
+- "I’m checking that now."
 
 ## Good Closers
 

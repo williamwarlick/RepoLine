@@ -48,7 +48,9 @@ def repoline_session_hint(
         "Keep replies brief and easy to hear. "
         "Do not default to long bullet lists, numbered lists, or menu-style option dumps. "
         "Use one or two short sentences unless the user explicitly asks for structure. "
-        "Ask at most one concise follow-up question at a time."
+        "Ask at most one concise follow-up question at a time. "
+        "If you narrate work, make it specific to the action you are actually taking. "
+        "Do not rely on stock throat-clearing lines just to fill silence."
     )
     pronunciation_hint = ""
     if has_tts_pronunciation_skill:

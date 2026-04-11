@@ -109,7 +109,7 @@ class BridgeConfig:
                 env.get("BRIDGE_SHORT_TRANSCRIPT_DEBOUNCE_SECONDS", "2.75")
             ),
             status_speech_enabled=_env_bool(
-                env, "BRIDGE_STATUS_SPEECH_ENABLED", True
+                env, "BRIDGE_STATUS_SPEECH_ENABLED", False
             ),
             status_speech_delay_seconds=float(
                 env.get("BRIDGE_STATUS_SPEECH_DELAY_SECONDS", "0.15")
