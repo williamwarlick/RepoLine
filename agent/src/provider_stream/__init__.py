@@ -1,15 +1,11 @@
-from __future__ import annotations
-
-from provider_stream.adapter import (
+from .adapter import (
     ProviderStreamAdapter,
     build_stream_command,
     get_provider_adapter,
     stream_text_chunks,
     stream_text_events,
 )
-from provider_stream.claude import ClaudeProviderStreamAdapter
-from provider_stream.codex import CodexProviderStreamAdapter
-from provider_stream.common import (
+from .common import (
     ACCESS_POLICY_ALIASES,
     AccessPolicy,
     ArtifactKind,
@@ -31,31 +27,17 @@ from provider_stream.common import (
     normalize_provider,
     provider_display_name,
 )
-from provider_stream.cursor import CursorProviderStreamAdapter
-
-_CLAUDE_ADAPTER = ClaudeProviderStreamAdapter()
-_CODEX_ADAPTER = CodexProviderStreamAdapter()
-_CURSOR_ADAPTER = CursorProviderStreamAdapter()
-
-
-def build_claude_command(config: TextStreamConfig) -> list[str]:
-    return _CLAUDE_ADAPTER.build_command(config)
-
-
-def build_codex_command(config: TextStreamConfig) -> list[str]:
-    return _CODEX_ADAPTER.build_command(config)
-
-
-def build_cursor_command(config: TextStreamConfig) -> list[str]:
-    return _CURSOR_ADAPTER.build_command(config)
-
+from .runner import JsonlProcess, ProcessRunner, SubprocessProcessRunner
 
 __all__ = [
     "ACCESS_POLICY_ALIASES",
     "AccessPolicy",
     "ArtifactKind",
+    "JsonlProcess",
+    "ProcessRunner",
     "ProviderStreamAdapter",
     "SentenceChunker",
+    "SubprocessProcessRunner",
     "TextStreamConfig",
     "TextStreamError",
     "TextStreamEvent",
@@ -67,9 +49,6 @@ __all__ = [
     "_extract_embedded_code_artifacts",
     "_extract_incremental_text",
     "_extract_text_candidate",
-    "build_claude_command",
-    "build_codex_command",
-    "build_cursor_command",
     "build_stream_command",
     "extract_text_from_content",
     "get_provider_adapter",
