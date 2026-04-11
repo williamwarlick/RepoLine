@@ -51,11 +51,34 @@ export function isRepoLineCursorRule(pathValue: string, skillName: string): bool
 
 export function checkCommandAvailable(name: string): DoctorCheck {
   const pathValue = Bun.which(name);
+  const installHint = commandInstallHint(name);
   return {
     name: `Command \`${name}\``,
     ok: Boolean(pathValue),
-    detail: pathValue ?? 'not found',
+    detail: pathValue ?? (installHint ? `not found; ${installHint}` : 'not found'),
   };
+}
+
+export function commandInstallHint(name: string): string | null {
+  if (name === 'lk') {
+    return 'run `./scripts/bootstrap.sh lk`';
+  }
+  if (name === 'uv') {
+    return 'run `./scripts/bootstrap.sh uv`';
+  }
+  if (name === 'bun') {
+    return 'run `./scripts/bootstrap.sh bun`';
+  }
+  if (name === 'claude') {
+    return 'run `./scripts/bootstrap.sh claude`';
+  }
+  if (name === 'codex') {
+    return 'run `./scripts/bootstrap.sh codex`';
+  }
+  if (name === 'cursor-agent') {
+    return 'run `./scripts/bootstrap.sh cursor`';
+  }
+  return null;
 }
 
 export function checkFileExists(name: string, pathValue: string): DoctorCheck {

@@ -7,6 +7,7 @@ import {
   checkEnvKey,
   checkInstalledRepoLineSkill,
   checkPhoneState,
+  commandInstallHint,
   isRepoLineCursorRule,
   isRepoLineSkillDirectory,
   projectSkillPath,
@@ -24,6 +25,13 @@ test('checkEnvKey reports set and missing values', () => {
     ok: false,
     detail: 'missing',
   });
+});
+
+test('commandInstallHint maps supported setup tools', () => {
+  expect(commandInstallHint('lk')).toBe('run `./scripts/bootstrap.sh lk`');
+  expect(commandInstallHint('uv')).toBe('run `./scripts/bootstrap.sh uv`');
+  expect(commandInstallHint('cursor-agent')).toBe('run `./scripts/bootstrap.sh cursor`');
+  expect(commandInstallHint('unknown-tool')).toBeNull();
 });
 
 test('projectSkillPath maps providers to their install roots', () => {

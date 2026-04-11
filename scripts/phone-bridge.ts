@@ -45,6 +45,7 @@ import {
   checkFileExists,
   checkInstalledRepoLineSkill,
   checkPhoneState,
+  commandInstallHint,
   isRepoLineCursorRule,
   isRepoLineSkillDirectory,
   projectSkillPath,
@@ -63,9 +64,19 @@ type LiveKitProject = {
 type PhoneNumberRecord = {
   id: string;
   e164Format: string;
+  areaCode?: string;
+  countryCode?: string;
   locality?: string;
   region?: string;
   status?: string;
+};
+
+type SearchablePhoneNumberRecord = {
+  e164Format: string;
+  areaCode?: string;
+  countryCode?: string;
+  locality?: string;
+  region?: string;
 };
 
 type PromptOption = {
@@ -91,6 +102,8 @@ const CALL_HISTORY_DIR = join(AGENT_DIR, 'logs', 'calls');
 const FRONTEND_PORT = 3000;
 const DEFAULT_FRONTEND_HOST = '127.0.0.1';
 const PHONE_NUMBER_STATUS_ACTIVE = 'PHONE_NUMBER_STATUS_ACTIVE';
+const LIVEKIT_PHONE_NUMBER_GUIDANCE_DATE = 'April 11, 2026';
+const BOOTSTRAP_SCRIPT_PATH = join(REPO_ROOT, 'scripts', 'bootstrap.sh');
 const REPOLINE_SKILL_SOURCE_DIR = join(REPO_ROOT, 'skills', REPOLINE_SKILL_NAME);
 const REPOLINE_SKILL_SOURCE_PATH = join(REPOLINE_SKILL_SOURCE_DIR, 'SKILL.md');
 const REPOLINE_CURSOR_RULE_SOURCE_PATH = join(REPOLINE_SKILL_SOURCE_DIR, 'cursor-rule.mdc');
@@ -110,6 +123,8 @@ const REPOLINE_TTS_PRONUNCIATION_NOTES_SOURCE_PATH = join(
 );
 
 class BridgeCliError extends Error {}
+
+refreshKnownPathEntries();
 
 const command = process.argv[2];
 
@@ -149,11 +164,9 @@ function printHelp(): void {
 async function setupCommand(): Promise<void> {
   intro('RepoLine');
   note(
-    'This will write local env files, install the RepoLine voice and pronunciation skills into your selected repo, install dependencies, and optionally wire a project phone number.',
+    'This will install missing setup tooling when possible, link LiveKit if needed, write local env files, install the RepoLine voice and pronunciation skills into your selected repo, install dependencies, and optionally wire a project phone number.',
     'Setup'
   );
-
-  requireTools('lk', 'uv', 'bun');
 
   const agentEnv = loadEnvFile(AGENT_ENV_PATH);
   const frontendEnv = loadEnvFile(FRONTEND_ENV_PATH);
@@ -161,8 +174,13 @@ async function setupCommand(): Promise<void> {
 
   const ui = createPrompter();
   try {
+    await ensureToolsAvailable(ui, ['lk', 'uv', 'bun'], 'RepoLine setup');
     const bridgeProvider = await selectBridgeProvider(ui, agentEnv, existingState);
-    requireTools(providerExecutable(bridgeProvider));
+    await ensureToolsAvailable(
+      ui,
+      [providerExecutable(bridgeProvider)],
+      `${formatBridgeProvider(bridgeProvider)} integration`
+    );
     await ensureProviderAuthenticated(ui, bridgeProvider);
 
     const project = await selectLiveKitProject(ui, agentEnv);
@@ -766,18 +784,7 @@ async function selectLiveKitProject(
   ui: ReturnType<typeof createPrompter>,
   existingAgentEnv: Record<string, string>
 ): Promise<LiveKitProject> {
-  const payload = runJsonCommand(['lk', 'project', 'list', '-j'], { cwd: REPO_ROOT });
-  if (!Array.isArray(payload) || payload.length === 0) {
-    throw new BridgeCliError('no LiveKit projects found. Run `lk project add` first.');
-  }
-
-  const projects = payload.map((item) => ({
-    name: item.Name,
-    url: item.URL,
-    apiKey: item.APIKey,
-    apiSecret: item.APISecret,
-    projectId: item.ProjectId || null,
-  })) as LiveKitProject[];
+  const projects = await ensureLiveKitProjectsLinked(ui, existingAgentEnv);
 
   let defaultIndex = 0;
   const currentUrl = existingAgentEnv.LIVEKIT_URL;
@@ -797,6 +804,131 @@ async function selectLiveKitProject(
     defaultIndex
   );
   return projects[selection];
+}
+
+async function ensureLiveKitProjectsLinked(
+  ui: ReturnType<typeof createPrompter>,
+  existingAgentEnv: Record<string, string>
+): Promise<LiveKitProject[]> {
+  while (true) {
+    const { projects, detail } = listConfiguredLiveKitProjects();
+    if (projects.length > 0) {
+      return projects;
+    }
+
+    note(
+      [
+        'RepoLine could not find any LiveKit projects linked in the `lk` CLI yet.',
+        detail,
+        'Setup can link your LiveKit Cloud account now, or you can paste one project in manually.',
+      ].join('\n'),
+      'LiveKit link required'
+    );
+
+    const selection = await ui.selectOption(
+      'How should RepoLine connect to LiveKit?',
+      [
+        {
+          label: 'Link my LiveKit Cloud account',
+          hint: 'Runs `lk cloud auth` and imports your available cloud projects',
+        },
+        {
+          label: 'Add one project manually',
+          hint: 'Paste the project URL, API key, and API secret from LiveKit Cloud',
+        },
+      ],
+      0
+    );
+
+    if (selection === 0) {
+      note(
+        'Complete the LiveKit Cloud login flow in this terminal or the browser window it opens. Setup will resume once the CLI has linked your projects.',
+        'LiveKit Cloud auth'
+      );
+      runChecked(['lk', 'cloud', 'auth'], {
+        cwd: REPO_ROOT,
+        captureOutput: false,
+      });
+      continue;
+    }
+
+    await addLiveKitProjectManually(ui, existingAgentEnv);
+  }
+}
+
+function listConfiguredLiveKitProjects(): {
+  projects: LiveKitProject[];
+  detail: string;
+} {
+  try {
+    const payload = runJsonCommand(['lk', 'project', 'list', '-j'], { cwd: REPO_ROOT });
+    if (!Array.isArray(payload)) {
+      return {
+        projects: [],
+        detail: 'The LiveKit CLI returned an unexpected project list format.',
+      };
+    }
+
+    const projects = payload
+      .map((value) => {
+        const item = value as Record<string, unknown>;
+        return {
+          name: typeof item.Name === 'string' ? item.Name : '',
+          url: typeof item.URL === 'string' ? item.URL : '',
+          apiKey: typeof item.APIKey === 'string' ? item.APIKey : '',
+          apiSecret: typeof item.APISecret === 'string' ? item.APISecret : '',
+          projectId: typeof item.ProjectId === 'string' && item.ProjectId ? item.ProjectId : null,
+        };
+      })
+      .filter((item) => item.name && item.url && item.apiKey && item.apiSecret);
+
+    if (projects.length === 0) {
+      return {
+        projects: [],
+        detail: 'No linked LiveKit projects were returned.',
+      };
+    }
+
+    return { projects, detail: `${projects.length} linked project(s) found.` };
+  } catch (error) {
+    return {
+      projects: [],
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function addLiveKitProjectManually(
+  ui: ReturnType<typeof createPrompter>,
+  existingAgentEnv: Record<string, string>
+): Promise<void> {
+  note(
+    'Paste the LiveKit Cloud project credentials from your dashboard. RepoLine will add them to the `lk` CLI and then reuse that linked project in setup.',
+    'Manual LiveKit project'
+  );
+  const projectName = await ui.promptText('LiveKit project name');
+  const url = await ui.promptText('LiveKit WebSocket URL', existingAgentEnv.LIVEKIT_URL);
+  const apiKey = await ui.promptText('LiveKit API key', existingAgentEnv.LIVEKIT_API_KEY);
+  const apiSecret = await ui.promptText('LiveKit API secret', existingAgentEnv.LIVEKIT_API_SECRET);
+  runChecked(
+    [
+      'lk',
+      'project',
+      'add',
+      projectName,
+      '--url',
+      url,
+      '--api-key',
+      apiKey,
+      '--api-secret',
+      apiSecret,
+      '--default',
+    ],
+    {
+      cwd: REPO_ROOT,
+      captureOutput: true,
+    }
+  );
 }
 
 async function selectWorkdir(
@@ -875,7 +1007,8 @@ async function configurePhone(
   existingPhone: PhoneConfig | null,
   projectNumbers: PhoneNumberRecord[]
 ): Promise<PhoneConfig> {
-  const phoneNumber = await choosePhoneNumber(ui, projectNumbers, existingPhone?.number ?? null);
+  const availableNumbers = await ensureProjectPhoneNumbers(ui, project, projectNumbers);
+  const phoneNumber = await choosePhoneNumber(ui, availableNumbers, existingPhone?.number ?? null);
   const pin = await promptPin(ui, existingPhone?.pin ?? null);
   const dispatchRuleName = slugify(`${agentName}-inbound`);
   const existingDispatch = selectDispatchRule(project.name, dispatchRuleName);
@@ -945,6 +1078,91 @@ async function configurePhone(
   };
 }
 
+async function ensureProjectPhoneNumbers(
+  ui: ReturnType<typeof createPrompter>,
+  project: LiveKitProject,
+  existingNumbers: PhoneNumberRecord[]
+): Promise<PhoneNumberRecord[]> {
+  if (existingNumbers.length > 0) {
+    return existingNumbers;
+  }
+
+  note(
+    [
+      `No active LiveKit phone numbers were found for ${project.name}.`,
+      `As of ${LIVEKIT_PHONE_NUMBER_GUIDANCE_DATE}, LiveKit Cloud plans include 1 free US local number, but you still have to search for it and purchase or assign it before inbound calls will work.`,
+      'RepoLine can do that from the CLI now and then attach the new number to a dispatch rule.',
+    ].join('\n'),
+    'Phone number required'
+  );
+
+  const shouldSearch = await ui.promptBool('Search LiveKit for a US local phone number now?', true);
+  if (!shouldSearch) {
+    throw new BridgeCliError(
+      'phone setup requires an active LiveKit phone number. Rerun setup when you are ready to add one.'
+    );
+  }
+
+  while (true) {
+    const preferredAreaCode = await ui.promptOptionalText(
+      'Preferred US area code (optional, for example 415 or 484)'
+    );
+    const numbers = searchAvailablePhoneNumbers(project.name, preferredAreaCode || null);
+    if (numbers.length === 0) {
+      const detail = preferredAreaCode
+        ? `No purchasable numbers were returned for area code ${preferredAreaCode}.`
+        : 'No purchasable US local numbers were returned.';
+      note(`${detail}\nTry a different area code or retry without one.`, 'No numbers found');
+      const shouldRetry = await ui.promptBool('Search again?', true);
+      if (!shouldRetry) {
+        throw new BridgeCliError(
+          'phone setup requires an active LiveKit phone number. Rerun setup when you are ready to add one.'
+        );
+      }
+      continue;
+    }
+
+    const selection = await ui.selectOption(
+      'Choose the LiveKit phone number to purchase',
+      numbers.map((item) => ({
+        label: item.e164Format,
+        hint: formatSearchablePhoneNumber(item),
+      })),
+      0
+    );
+    const numberToPurchase = numbers[selection];
+
+    note(
+      [
+        `LiveKit docs say that, as of ${LIVEKIT_PHONE_NUMBER_GUIDANCE_DATE}, Cloud plans include 1 free US local phone number.`,
+        'Additional numbers or usage can still incur charges, so RepoLine will only continue if you confirm the purchase.',
+      ].join('\n'),
+      'Billing'
+    );
+    const shouldPurchase = await ui.promptBool(
+      `Purchase ${numberToPurchase.e164Format} in LiveKit now?`,
+      true
+    );
+    if (!shouldPurchase) {
+      const shouldRetry = await ui.promptBool('Search for a different phone number instead?', true);
+      if (!shouldRetry) {
+        throw new BridgeCliError(
+          'phone setup requires an active LiveKit phone number. Rerun setup when you are ready to add one.'
+        );
+      }
+      continue;
+    }
+
+    purchasePhoneNumber(project.name, numberToPurchase.e164Format);
+    const refreshedNumbers = listPhoneNumbers(project.name);
+    if (refreshedNumbers.length > 0) {
+      return refreshedNumbers;
+    }
+
+    throw new BridgeCliError('LiveKit reported a successful purchase, but no active phone numbers were found.');
+  }
+}
+
 async function choosePhoneNumber(
   ui: ReturnType<typeof createPrompter>,
   numbers: PhoneNumberRecord[],
@@ -952,7 +1170,7 @@ async function choosePhoneNumber(
 ): Promise<PhoneNumberRecord> {
   if (numbers.length === 0) {
     throw new BridgeCliError(
-      'no active phone number was found for this LiveKit project. Add one in LiveKit first, then rerun setup.'
+      'no active phone number was found for this LiveKit project. Let setup search for one, or add one in LiveKit first and rerun setup.'
     );
   }
 
@@ -980,6 +1198,50 @@ async function choosePhoneNumber(
   return numbers[selection];
 }
 
+function searchAvailablePhoneNumbers(
+  projectName: string,
+  areaCode: string | null
+): SearchablePhoneNumberRecord[] {
+  const cmd = [
+    'lk',
+    '--project',
+    projectName,
+    'number',
+    'search',
+    '--country-code',
+    'US',
+    '--limit',
+    '12',
+    ...(areaCode ? ['--area-code', areaCode] : []),
+  ];
+
+  try {
+    const payload = runJsonCommand([...cmd, '--json'], {
+      cwd: REPO_ROOT,
+    });
+    const records = normalizeSearchablePhoneNumbers(payload);
+    if (records.length > 0) {
+      return records;
+    }
+  } catch {}
+
+  const output = runChecked(cmd, {
+    cwd: REPO_ROOT,
+    captureOutput: true,
+  }).stdout;
+  return parseSearchablePhoneNumbersTable(output);
+}
+
+function purchasePhoneNumber(projectName: string, phoneNumber: string): void {
+  runChecked(
+    ['lk', '--project', projectName, '--yes', 'number', 'purchase', '--numbers', phoneNumber],
+    {
+      cwd: REPO_ROOT,
+      captureOutput: true,
+    }
+  );
+}
+
 function listPhoneNumbers(projectName: string): PhoneNumberRecord[] {
   const payload = runJsonCommand(['lk', '--project', projectName, 'number', 'list', '-j'], {
     cwd: REPO_ROOT,
@@ -991,6 +1253,89 @@ function listPhoneNumbers(projectName: string): PhoneNumberRecord[] {
       typeof item.id === 'string' &&
       typeof item.e164Format === 'string'
   );
+}
+
+function normalizeSearchablePhoneNumbers(payload: unknown): SearchablePhoneNumberRecord[] {
+  const records = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown[] }).items)
+      ? (payload as { items: unknown[] }).items
+      : [];
+  return records
+    .map((item) => normalizeSearchablePhoneNumber(item))
+    .filter((item): item is SearchablePhoneNumberRecord => item !== null);
+}
+
+function normalizeSearchablePhoneNumber(value: unknown): SearchablePhoneNumberRecord | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const item = value as Record<string, unknown>;
+  const e164Format = readStringValue(
+    item.e164Format,
+    item.e164,
+    item.number,
+    item.Number,
+    item.E164
+  );
+  if (!e164Format) {
+    return null;
+  }
+  return {
+    e164Format,
+    countryCode: readStringValue(item.countryCode, item.Country),
+    areaCode: readStringValue(item.areaCode, item['Area Code']),
+    locality: readStringValue(item.locality, item.Locality),
+    region: readStringValue(item.region, item.Region),
+  };
+}
+
+function parseSearchablePhoneNumbersTable(output: string): SearchablePhoneNumberRecord[] {
+  const rowValues = output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('│') && line.endsWith('│'))
+    .map((line) =>
+      line
+        .slice(1, -1)
+        .split('│')
+        .map((part) => part.trim())
+    );
+
+  if (rowValues.length <= 1) {
+    return [];
+  }
+
+  const header = rowValues[0];
+  const e164Index = header.indexOf('E164');
+  if (e164Index < 0) {
+    return [];
+  }
+
+  const areaCodeIndex = header.indexOf('Area Code');
+  const countryIndex = header.indexOf('Country');
+  const localityIndex = header.indexOf('Locality');
+  const regionIndex = header.indexOf('Region');
+
+  return rowValues
+    .slice(1)
+    .map((row) => ({
+      e164Format: row[e164Index] ?? '',
+      areaCode: areaCodeIndex >= 0 ? row[areaCodeIndex] : undefined,
+      countryCode: countryIndex >= 0 ? row[countryIndex] : undefined,
+      locality: localityIndex >= 0 ? row[localityIndex] : undefined,
+      region: regionIndex >= 0 ? row[regionIndex] : undefined,
+    }))
+    .filter((row) => row.e164Format.length > 0);
+}
+
+function readStringValue(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
 }
 
 async function promptPin(
@@ -1007,10 +1352,80 @@ async function promptPin(
 }
 
 function requireTools(...tools: string[]): void {
+  refreshKnownPathEntries();
   const missing = tools.filter((tool) => !Bun.which(tool));
   if (missing.length > 0) {
     throw new BridgeCliError(`missing required tools: ${missing.join(', ')}`);
   }
+}
+
+async function ensureToolsAvailable(
+  ui: ReturnType<typeof createPrompter>,
+  tools: string[],
+  label: string
+): Promise<void> {
+  refreshKnownPathEntries();
+  const missing = tools.filter((tool) => !Bun.which(tool));
+  if (missing.length === 0) {
+    return;
+  }
+
+  const detailLines = missing.map(
+    (tool) => `- ${tool}: ${commandInstallHint(tool) ?? 'install it manually'}`
+  );
+  note(
+    `${label} needs a few local commands before setup can continue.\n${detailLines.join('\n')}`,
+    'Missing tools'
+  );
+
+  const shouldInstall = await ui.promptBool(
+    `Run ./scripts/bootstrap.sh for ${missing.join(', ')} now?`,
+    true
+  );
+  if (!shouldInstall) {
+    throw new BridgeCliError(`missing required tools: ${missing.join(', ')}`);
+  }
+
+  runBootstrapInstaller(missing);
+  refreshKnownPathEntries();
+
+  const stillMissing = tools.filter((tool) => !Bun.which(tool));
+  if (stillMissing.length > 0) {
+    throw new BridgeCliError(
+      `bootstrap finished, but these commands are still missing: ${stillMissing.join(', ')}`
+    );
+  }
+}
+
+function runBootstrapInstaller(tools: string[]): void {
+  runChecked(['bash', BOOTSTRAP_SCRIPT_PATH, ...tools.map(bootstrapInstallTarget)], {
+    cwd: REPO_ROOT,
+    captureOutput: false,
+  });
+}
+
+function bootstrapInstallTarget(tool: string): string {
+  if (tool === 'cursor-agent') {
+    return 'cursor';
+  }
+  return tool;
+}
+
+function refreshKnownPathEntries(): void {
+  const candidates = [
+    join(process.env.HOME ?? '', '.bun', 'bin'),
+    join(process.env.HOME ?? '', '.local', 'bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+  ];
+  const currentEntries = (process.env.PATH ?? '').split(':').filter(Boolean);
+  for (const candidate of candidates) {
+    if (!candidate || !existsSync(candidate) || currentEntries.includes(candidate)) {
+      continue;
+    }
+    currentEntries.unshift(candidate);
+  }
+  process.env.PATH = currentEntries.join(':');
 }
 
 function resolveFrontendHost(): string {
@@ -1514,6 +1929,12 @@ function formatPhoneInstructions(phone: PhoneConfig): string {
   ].join('\n');
 }
 
+function formatSearchablePhoneNumber(number: SearchablePhoneNumberRecord): string {
+  const location = [number.locality, number.region].filter(Boolean).join(', ');
+  const areaCode = number.areaCode ? `area code ${number.areaCode}` : null;
+  return [location, areaCode].filter(Boolean).join(' - ') || number.e164Format;
+}
+
 function emphasize(value: string): string {
   return `\x1b[1m\x1b[36m${value}\x1b[0m`;
 }
@@ -1537,6 +1958,19 @@ function createPrompter() {
       });
 
       return requirePromptValue(answer, defaultValue);
+    },
+
+    async promptOptionalText(prompt: string, defaultValue?: string): Promise<string> {
+      const answer = await clackText({
+        message: prompt,
+        placeholder: defaultValue,
+        defaultValue,
+      });
+
+      if (isCancel(answer)) {
+        return requirePromptValue(answer);
+      }
+      return typeof answer === 'string' ? answer.trim() : '';
     },
 
     async promptBool(prompt: string, defaultValue: boolean): Promise<boolean> {
