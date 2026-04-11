@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./docs/assets/repoline-banner.svg" alt="RepoLine" width="100%" />
+  <img src="./docs/assets/repoline-readme-banner.png" alt="RepoLine" width="100%" />
 </p>
 
 <p align="center">
