@@ -31,6 +31,8 @@ Use short spoken replies.
     assert resolved.mode == "installed"
     assert resolved.source_path == str(installed_skill)
     assert "RepoLine voice session" in resolved.prompt
+    assert "live phone call or browser voice session" in resolved.prompt
+    assert "Do not default to long bullet lists, numbered lists, or menu-style option dumps." in resolved.prompt
 
 
 def test_resolve_repoline_skill_prompt_respects_explicit_prompt(tmp_path) -> None:
@@ -43,6 +45,7 @@ def test_resolve_repoline_skill_prompt_respects_explicit_prompt(tmp_path) -> Non
     assert resolved.mode == "env-override"
     assert resolved.prompt.startswith("Speak plainly.")
     assert "RepoLine voice session" in resolved.prompt
+    assert "Use one or two short sentences unless the user explicitly asks for structure." in resolved.prompt
 
 
 def test_resolve_repoline_skill_prompt_requires_installed_skill_without_override(
@@ -80,6 +83,7 @@ alwaysApply: true
     assert resolved.mode == "installed"
     assert resolved.source_path == str(installed_rule)
     assert "RepoLine voice rule" in resolved.prompt
+    assert "Ask at most one concise follow-up question at a time." in resolved.prompt
 
 
 def test_resolve_repoline_skill_prompt_mentions_tts_pronunciation_skill_when_installed(

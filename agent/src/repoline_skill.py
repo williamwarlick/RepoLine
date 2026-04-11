@@ -43,6 +43,13 @@ def repoline_session_hint(
     has_tts_pronunciation_skill: bool = False,
 ) -> str:
     normalized_provider = normalize_provider(provider)
+    voice_context_hint = (
+        " The user is hearing you over a live phone call or browser voice session. "
+        "Keep replies brief and easy to hear. "
+        "Do not default to long bullet lists, numbered lists, or menu-style option dumps. "
+        "Use one or two short sentences unless the user explicitly asks for structure. "
+        "Ask at most one concise follow-up question at a time."
+    )
     pronunciation_hint = ""
     if has_tts_pronunciation_skill:
         if normalized_provider == "cursor":
@@ -61,6 +68,8 @@ def repoline_session_hint(
     if normalized_provider == "cursor":
         return (
             "This is a RepoLine voice session. "
+            f"{voice_context_hint}"
+            " "
             "Use the installed RepoLine voice rule silently for spoken phrasing, "
             "tool narration, and progress updates. "
             "Do not mention the rule file or say that you are following a rule unless the user asks."
@@ -69,6 +78,8 @@ def repoline_session_hint(
 
     return (
         "This is a RepoLine voice session. "
+        f"{voice_context_hint}"
+        " "
         f"Use the `{skill_name}` skill silently for spoken phrasing, "
         "tool narration, and progress updates. "
         "Do not mention the skill name or say that you are using a skill unless the user asks."

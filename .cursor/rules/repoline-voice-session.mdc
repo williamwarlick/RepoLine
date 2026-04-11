@@ -58,15 +58,6 @@ When you finish a turn:
 
 Do not end with vague filler if you already know the outcome.
 
-## Pronunciation Corrections
-
-If the user says something sounded weird, got mispronounced, or was spelled out letter by letter:
-
-- treat that as actionable speech feedback
-- switch to the corrected phrasing immediately when you can
-- update the provider-specific RepoLine TTS pronunciation notes when that companion rule is installed
-- confirm the correction briefly without over-explaining the TTS stack
-
 ## RepoLine-Specific Context
 
 - RepoLine is the phone and browser bridge, not the coding agent itself.
