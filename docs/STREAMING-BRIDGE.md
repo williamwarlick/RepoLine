@@ -32,7 +32,7 @@ With it, LiveKit TTS can start speaking as soon as the first coherent chunk arri
 
 ```bash
 python3 scripts/agent_stream_bridge.py \
-  --working-directory /Users/wwarlick \
+  --working-directory /path/to/your/repo \
   --system-prompt "Speak briefly and conversationally." \
   "Explain what you are doing."
 ```

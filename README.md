@@ -1,24 +1,45 @@
-# Claude Code Phone Bridge
+<p align="center">
+  <img src="./docs/assets/repoline-banner.svg" alt="RepoLine" width="100%" />
+</p>
 
-Talk to Claude Code from your phone or browser using LiveKit.
+<p align="center">
+  <strong>Call your codebase.</strong><br />
+  Talk to Claude Code from your phone or browser over LiveKit.
+</p>
 
-This repo does not provide its own LLM. LiveKit handles audio transport, STT, and TTS. Claude Code stays the real agent. The bridge forwards each final user turn into Claude Code and speaks Claude's partial output as it streams back.
+<p align="center">
+  <a href="https://github.com/williamwarlick/RepoLine/actions/workflows/ci.yml">
+    <img src="https://github.com/williamwarlick/RepoLine/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  </a>
+  <a href="./LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-0f172a.svg" alt="MIT License" />
+  </a>
+  <img src="https://img.shields.io/badge/runtime-bun%20%2B%20uv-0b1320.svg" alt="bun and uv" />
+  <img src="https://img.shields.io/badge/voice-LiveKit-0b1320.svg" alt="LiveKit" />
+</p>
 
-## Architecture
+<p align="center">
+  <a href="#why-repoline">Why RepoLine</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#security-model">Security model</a> ·
+  <a href="./docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="./docs/BRANDING.md">Branding</a>
+</p>
 
-- `frontend/`: LiveKit web client for browser and phone access
-- `agent/`: LiveKit agent that receives STT turns and streams Claude Code output into TTS
-- `scripts/phone-bridge.ts`: Bun setup, dev, and doctor commands
-- `scripts/agent_stream_bridge.py`: local debug tool for inspecting Claude Code's partial-output stream
+## Why RepoLine
 
-The bridge intentionally does not store mirrored chat history. Claude Code owns conversation continuity through its own session.
+RepoLine gives you a phone line into a local Claude Code session.
 
-During a slower turn, the bridge now does three things:
+It is built for the case where the code, auth, and tool access all need to stay on your machine, but you still want to talk to your repo naturally from your laptop or your phone.
 
-- speaks one short bridge-generated acknowledgement immediately after a turn starts
-- relies on Claude Code to narrate what it is doing once Claude begins replying
-- merges closely spaced final transcripts before sending them to Claude
-- prompts Claude Code to announce tool work and delegate deeper background investigation when useful
+What it does well:
+
+- routes a LiveKit browser session or phone call into a local Claude Code workdir
+- speaks Claude Code partial output as it streams instead of waiting for a full turn
+- keeps setup short with `bun run setup`, `bun run dev`, and `bun run doctor`
+- auto-discovers linked LiveKit projects and existing project phone numbers
+- wires a 4-digit caller PIN and number-scoped SIP dispatch rule during setup
 
 ## Quick Start
 
@@ -29,7 +50,7 @@ Prerequisites:
 - `uv`
 - `bun`
 
-Run the three root commands:
+Run:
 
 ```bash
 bun run setup
@@ -37,13 +58,11 @@ bun run dev
 bun run doctor
 ```
 
-## What `setup` does
-
 The setup wizard:
 
 1. reads the LiveKit projects already linked in your `lk` CLI config
 2. lets you choose the target project
-3. lets you choose the Claude Code repo/workdir from discovered local git repos
+3. lets you choose the Claude Code repo or workdir from discovered local git repos
 4. writes `agent/.env.local` and `frontend/.env.local`
 5. installs agent and frontend dependencies
 6. pre-downloads agent runtime files
@@ -53,36 +72,77 @@ If the selected LiveKit project has exactly one active phone number, setup uses 
 
 When phone wiring is enabled, setup creates or updates a SIP dispatch rule, asks for a 4-digit caller PIN, and scopes inbound routing to the configured LiveKit project number.
 
-For production-like previews or a deployed frontend, set `NEXT_PUBLIC_APP_URL` so Open Graph and social metadata resolve to the correct host instead of localhost.
+## How It Works
 
-## Runtime Shape
+```mermaid
+flowchart LR
+  Phone["Phone call"] --> LiveKit["LiveKit<br/>telephony + STT + TTS"]
+  Browser["Browser session"] --> LiveKit
+  LiveKit --> Agent["Local RepoLine agent"]
+  Agent --> Claude["Claude Code<br/>inside your repo"]
+  Claude --> Agent
+  Agent --> LiveKit
+```
 
-This repo is optimized for one path:
+RepoLine itself is not the model.
 
-1. LiveKit web session or inbound phone call
-2. Remote STT and remote TTS through LiveKit Inference
-3. Claude Code CLI as the coding agent
-4. Incremental spoken output from Claude Code partial-message events
+LiveKit handles media transport, speech-to-text, text-to-speech, and telephony. Claude Code stays the real coding agent. RepoLine forwards final user turns into Claude Code and speaks Claude's partial output back as soon as it can.
+
+The bridge intentionally does not store a mirrored chat history. Continuity stays with Claude Code through its own session handling.
+
+During slower turns, RepoLine:
+
+- speaks one short bridge-generated acknowledgement immediately after a turn starts
+- relies on Claude Code to narrate what it is doing once Claude begins replying
+- merges closely spaced final transcripts before sending them to Claude
+- prompts Claude Code to announce tool work and delegate deeper background investigation when useful
+
+## From Your Phone
 
 `bun run dev` starts both the Python LiveKit agent and the Bun-run frontend. The frontend binds to `0.0.0.0` so you can open it from your phone on the same network.
 
-## Test From Your Phone
-
-Open the frontend from your laptop browser first. Then open the same app from your phone on the same network using your laptop's LAN IP, for example:
+Open the frontend from your laptop first. Then open the same app from your phone using your laptop's LAN IP, for example:
 
 ```text
 http://192.168.1.20:3000
 ```
 
-When the app connects, it should dispatch to `clawdbot-agent`, greet you, and route your voice turn into Claude Code.
+If you configured telephony in setup, RepoLine prints the number to call and the caller PIN in the setup summary.
 
-## Debugging the Claude stream
+## Security Model
+
+RepoLine is intentionally local-first.
+
+- Claude Code stays on your machine with access to your local repo
+- LiveKit handles voice transport and phone ingress
+- the frontend token route is development-only and intentionally throws outside development
+- the local worker still has to be running for inbound phone calls to reach Claude Code
+
+The development-only token route lives in [`frontend/app/api/token/route.ts`](./frontend/app/api/token/route.ts).
+
+For production-like previews or a deployed frontend, set `NEXT_PUBLIC_APP_URL` so Open Graph and social metadata resolve to the correct host instead of localhost.
+
+## Developer Notes
+
+- Agent code lives in [`agent/`](./agent)
+- Frontend lives in [`frontend/`](./frontend)
+- Setup and orchestration live in [`scripts/phone-bridge.ts`](./scripts/phone-bridge.ts)
+- Streaming debug harness lives in [`scripts/agent_stream_bridge.py`](./scripts/agent_stream_bridge.py)
+
+Useful docs:
+
+- [Architecture](./docs/ARCHITECTURE.md)
+- [Phone number plan](./docs/PHONE-NUMBER-PLAN.md)
+- [Streaming bridge](./docs/STREAMING-BRIDGE.md)
+- [Branding](./docs/BRANDING.md)
+
+## Debugging The Claude Stream
 
 You can inspect Claude Code's partial text stream directly:
 
 ```bash
 python3 scripts/agent_stream_bridge.py \
-  --working-directory /Users/wwarlick \
+  --working-directory /path/to/your/repo \
   "Tell me what files are in the current directory."
 ```
 
@@ -90,7 +150,7 @@ The script emits JSONL events, including sentence-sized `speech_chunk` items.
 
 ## Observability
 
-The bridge now emits telemetry in three places:
+RepoLine emits telemetry in three places:
 
 - local JSONL turn logs at `agent/logs/bridge-telemetry.jsonl`
 - worker logs with LiveKit metrics and state transitions
@@ -112,11 +172,11 @@ http://127.0.0.1:9465/metrics
 
 ## Known Limits
 
-- Claude Code is still turn-based. This bridge speaks partial text as soon as Claude emits it, but Claude still decides when the first text chunk appears.
+- Claude Code is still turn-based. RepoLine speaks partial text as soon as Claude emits it, but Claude still decides when the first text chunk appears.
 - The backend currently launches Claude Code per user turn. Continuity stays with Claude through its session ID, not through local transcript replay.
-- The frontend token route is still development-only and needs a real auth layer before any internet-facing deployment. See [frontend/app/api/token/route.ts](/Users/wwarlick/development/agent-phone-bridge/frontend/app/api/token/route.ts#L20).
-- The local worker still has to be running for inbound phone calls to reach Claude Code.
+- The browser path is the most polished entry point today.
+- Internet-facing deployment still needs a real auth layer for the frontend token route.
 
 ## License
 
-MIT. See [LICENSE](/Users/wwarlick/development/agent-phone-bridge/LICENSE).
+MIT. See [LICENSE](./LICENSE).

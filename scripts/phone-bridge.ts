@@ -109,7 +109,7 @@ function printHelp(): void {
 }
 
 async function setupCommand(): Promise<void> {
-  console.log('Claude Code Phone Bridge setup');
+  console.log('RepoLine setup');
   console.log(
     'This will write local env files, install dependencies, and optionally wire a project phone number.'
   );
