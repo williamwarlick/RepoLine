@@ -21,13 +21,24 @@ import {
   openSync,
   readdirSync,
   readFileSync,
-  renameSync,
   symlinkSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  REPOLINE_SKILL_NAME,
+  REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+  loadEnvFile,
+  loadSetupState,
+  normalizeBridgeProvider,
+  saveSetupState,
+  type BridgeProvider,
+  type PhoneConfig,
+  type SetupState,
+  writeBridgeEnvFiles,
+} from './bridge-runtime-config';
 
 type LiveKitProject = {
   name: string;
@@ -35,42 +46,6 @@ type LiveKitProject = {
   apiKey: string;
   apiSecret: string;
   projectId: string | null;
-};
-
-type PhoneConfig = {
-  number: string;
-  pin: string;
-  dispatchRuleName: string;
-  dispatchRuleId: string;
-};
-
-type BridgeProvider = 'claude' | 'codex' | 'cursor';
-
-type SetupState = {
-  configured_at: string;
-  livekit_project_name: string;
-  livekit_url: string;
-  agent_name: string;
-  bridge_provider: BridgeProvider;
-  workdir: string;
-  phone: PhoneConfig | null;
-};
-
-type RawState = {
-  configured_at: string;
-  livekit_project_name: string;
-  livekit_url: string;
-  agent_name: string;
-  bridge_provider: string;
-  workdir: string;
-  phone?: {
-    number: string;
-    pin: string;
-    dispatchRuleName?: string;
-    dispatchRuleId?: string;
-    dispatch_rule_name?: string;
-    dispatch_rule_id?: string;
-  } | null;
 };
 
 type PhoneNumberRecord = {
@@ -107,11 +82,9 @@ const FRONTEND_LIVE_LOG_PATH = join(RUNTIME_LOG_DIR, 'frontend-live.log');
 const LATEST_CALL_SUMMARY_PATH = join(AGENT_DIR, 'logs', 'latest-call.md');
 const CALL_HISTORY_DIR = join(AGENT_DIR, 'logs', 'calls');
 const PHONE_NUMBER_STATUS_ACTIVE = 'PHONE_NUMBER_STATUS_ACTIVE';
-const REPOLINE_SKILL_NAME = 'repoline-voice-session';
 const REPOLINE_SKILL_SOURCE_DIR = join(REPO_ROOT, 'skills', REPOLINE_SKILL_NAME);
 const REPOLINE_SKILL_SOURCE_PATH = join(REPOLINE_SKILL_SOURCE_DIR, 'SKILL.md');
 const REPOLINE_CURSOR_RULE_SOURCE_PATH = join(REPOLINE_SKILL_SOURCE_DIR, 'cursor-rule.mdc');
-const REPOLINE_TTS_PRONUNCIATION_SKILL_NAME = 'repoline-tts-pronunciation';
 const REPOLINE_TTS_PRONUNCIATION_SKILL_SOURCE_DIR = join(
   REPO_ROOT,
   'skills',
@@ -172,7 +145,7 @@ async function setupCommand(): Promise<void> {
 
   const agentEnv = loadEnvFile(AGENT_ENV_PATH);
   const frontendEnv = loadEnvFile(FRONTEND_ENV_PATH);
-  const existingState = loadState();
+  const existingState = loadSetupState(STATE_PATH);
 
   const ui = createPrompter();
   try {
@@ -214,7 +187,9 @@ async function setupCommand(): Promise<void> {
       );
     }
 
-    writeEnvFiles({
+    writeBridgeEnvFiles({
+      agentEnvPath: AGENT_ENV_PATH,
+      frontendEnvPath: FRONTEND_ENV_PATH,
       project,
       agentName,
       bridgeProvider,
@@ -223,7 +198,7 @@ async function setupCommand(): Promise<void> {
       existingFrontendEnv: frontendEnv,
     });
 
-    saveState({
+    saveSetupState(STATE_PATH, {
       configured_at: new Date().toISOString(),
       livekit_project_name: project.name,
       livekit_url: project.url,
@@ -288,7 +263,7 @@ async function runRuntimeCommand(mode: 'dev' | 'live'): Promise<void> {
   }
 
   requireTools('uv', 'bun');
-  const state = loadState();
+  const state = loadSetupState(STATE_PATH);
   prepareCallSummaryArtifacts();
 
   const processes = [
@@ -419,7 +394,7 @@ function doctorCommand(): void {
 
   const agentEnv = loadEnvFile(AGENT_ENV_PATH);
   const frontendEnv = loadEnvFile(FRONTEND_ENV_PATH);
-  const state = loadState();
+  const state = loadSetupState(STATE_PATH);
   const bridgeProviderRaw = agentEnv.BRIDGE_CLI_PROVIDER ?? '';
   const bridgeProvider = bridgeProviderRaw ? normalizeBridgeProvider(bridgeProviderRaw) : null;
   const workdir = agentEnv.BRIDGE_WORKDIR ?? '';
@@ -787,150 +762,6 @@ async function promptPin(
   }
 }
 
-function writeEnvFiles(options: {
-  project: LiveKitProject;
-  agentName: string;
-  bridgeProvider: BridgeProvider;
-  workdir: string;
-  existingAgentEnv: Record<string, string>;
-  existingFrontendEnv: Record<string, string>;
-}): void {
-  const agentEnv = {
-    LIVEKIT_URL: options.project.url,
-    LIVEKIT_API_KEY: options.project.apiKey,
-    LIVEKIT_API_SECRET: options.project.apiSecret,
-    LIVEKIT_AGENT_NAME: options.agentName,
-    BRIDGE_CLI_PROVIDER: options.bridgeProvider,
-    BRIDGE_WORKDIR: options.workdir,
-    BRIDGE_MODEL: options.existingAgentEnv.BRIDGE_MODEL ?? '',
-    BRIDGE_THINKING_LEVEL:
-      options.existingAgentEnv.BRIDGE_THINKING_LEVEL ??
-      options.existingAgentEnv.BRIDGE_CODEX_REASONING_EFFORT ??
-      'low',
-    BRIDGE_ACCESS_POLICY: options.existingAgentEnv.BRIDGE_ACCESS_POLICY ?? 'readonly',
-    REPOLINE_SKILL_NAME:
-      options.existingAgentEnv.REPOLINE_SKILL_NAME ?? REPOLINE_SKILL_NAME,
-    REPOLINE_TTS_PRONUNCIATION_SKILL_NAME:
-      options.existingAgentEnv.REPOLINE_TTS_PRONUNCIATION_SKILL_NAME ??
-      REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
-    BRIDGE_SYSTEM_PROMPT: options.existingAgentEnv.BRIDGE_SYSTEM_PROMPT ?? '',
-    BRIDGE_CHUNK_CHARS: options.existingAgentEnv.BRIDGE_CHUNK_CHARS ?? '140',
-    FINAL_TRANSCRIPT_DEBOUNCE_SECONDS:
-      options.existingAgentEnv.FINAL_TRANSCRIPT_DEBOUNCE_SECONDS ?? '0.85',
-    LIVEKIT_STT_MODEL: options.existingAgentEnv.LIVEKIT_STT_MODEL ?? 'deepgram/nova-3',
-    LIVEKIT_STT_LANGUAGE: options.existingAgentEnv.LIVEKIT_STT_LANGUAGE ?? 'multi',
-    LIVEKIT_TTS_MODEL: options.existingAgentEnv.LIVEKIT_TTS_MODEL ?? 'cartesia/sonic-3',
-    LIVEKIT_TTS_VOICE:
-      options.existingAgentEnv.LIVEKIT_TTS_VOICE ?? '9626c31c-bec5-4cca-baa8-f8ba9e84c8bc',
-    BRIDGE_GREETING:
-      options.existingAgentEnv.BRIDGE_GREETING ??
-      'RepoLine is live. What do you want to work on?',
-  };
-
-  const frontendEnv = {
-    LIVEKIT_API_KEY: options.project.apiKey,
-    LIVEKIT_API_SECRET: options.project.apiSecret,
-    LIVEKIT_URL: options.project.url,
-    AGENT_NAME: options.agentName,
-    NEXT_PUBLIC_APP_CONFIG_ENDPOINT:
-      options.existingFrontendEnv.NEXT_PUBLIC_APP_CONFIG_ENDPOINT ?? '',
-    SANDBOX_ID: options.existingFrontendEnv.SANDBOX_ID ?? '',
-  };
-
-  writeEnvFile(AGENT_ENV_PATH, agentEnv);
-  writeEnvFile(FRONTEND_ENV_PATH, frontendEnv);
-}
-
-function writeEnvFile(pathValue: string, values: Record<string, string>): void {
-  const lines = ['# Generated by `bun run setup`.', ''];
-  for (const [key, value] of Object.entries(values)) {
-    lines.push(`${key}=${formatEnvValue(value)}`);
-  }
-  const nextContents = `${lines.join('\n')}\n`;
-
-  if (existsSync(pathValue)) {
-    const currentContents = readFileSync(pathValue, 'utf8');
-    if (currentContents === nextContents) {
-      return;
-    }
-    renameSync(pathValue, `${pathValue}.bak`);
-  }
-
-  writeFileSync(pathValue, nextContents);
-}
-
-function formatEnvValue(value: string): string {
-  if (value.length === 0) {
-    return '';
-  }
-  if (/^[A-Za-z0-9_./:@+-]+$/.test(value)) {
-    return value;
-  }
-  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
-}
-
-function loadEnvFile(pathValue: string): Record<string, string> {
-  if (!existsSync(pathValue)) {
-    return {};
-  }
-
-  const env: Record<string, string> = {};
-  const contents = readFileSync(pathValue, 'utf8');
-  for (const line of contents.split(/\r?\n/)) {
-    const stripped = line.trim();
-    if (!stripped || stripped.startsWith('#') || !line.includes('=')) {
-      continue;
-    }
-    const [key, ...rest] = line.split('=');
-    let value = rest.join('=').trim();
-    if (value.startsWith('"') && value.endsWith('"')) {
-      value = value.slice(1, -1).replaceAll('\\"', '"').replaceAll('\\\\', '\\');
-    }
-    env[key.trim()] = value;
-  }
-  return env;
-}
-
-function saveState(state: SetupState): void {
-  mkdirSync(STATE_DIR, { recursive: true });
-  writeFileSync(STATE_PATH, `${JSON.stringify(state, null, 2)}\n`);
-}
-
-function loadState(): SetupState | null {
-  if (!existsSync(STATE_PATH)) {
-    return null;
-  }
-  const rawState = JSON.parse(readFileSync(STATE_PATH, 'utf8')) as RawState;
-  if (
-    !rawState.bridge_provider ||
-    !rawState.workdir ||
-    !rawState.livekit_project_name ||
-    !rawState.livekit_url ||
-    !rawState.agent_name
-  ) {
-    throw new BridgeCliError(
-      'existing .bridge/state.json is from the pre-cutover shape; rerun `bun run setup` to regenerate it'
-    );
-  }
-  return {
-    configured_at: rawState.configured_at,
-    livekit_project_name: rawState.livekit_project_name,
-    livekit_url: rawState.livekit_url,
-    agent_name: rawState.agent_name,
-    bridge_provider: normalizeBridgeProvider(rawState.bridge_provider),
-    workdir: rawState.workdir,
-    phone: rawState.phone
-      ? {
-          number: rawState.phone.number,
-          pin: rawState.phone.pin,
-          dispatchRuleName:
-            rawState.phone.dispatchRuleName ?? rawState.phone.dispatch_rule_name ?? '',
-          dispatchRuleId: rawState.phone.dispatchRuleId ?? rawState.phone.dispatch_rule_id ?? '',
-        }
-      : null,
-  };
-}
-
 function requireTools(...tools: string[]): void {
   const missing = tools.filter((tool) => !Bun.which(tool));
   if (missing.length > 0) {
@@ -972,17 +803,6 @@ async function selectBridgeProvider(
     return 'codex';
   }
   return 'cursor';
-}
-
-function normalizeBridgeProvider(value: string): BridgeProvider {
-  const normalized = value.trim().toLowerCase();
-  if (normalized === 'codex') {
-    return 'codex';
-  }
-  if (normalized === 'cursor' || normalized === 'cursor-agent') {
-    return 'cursor';
-  }
-  return 'claude';
 }
 
 function formatBridgeProvider(provider: BridgeProvider): string {
