@@ -1,8 +1,10 @@
 'use client';
 
 import { useSessionContext } from '@livekit/components-react';
+import type { TrackPublishOptions } from 'livekit-client';
 import { AnimatePresence, motion } from 'motion/react';
 import { useTheme } from 'next-themes';
+import { useCallback } from 'react';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionView_01 } from '@/components/agents-ui/blocks/agent-session-view-01';
 import { WelcomeView } from '@/components/app/welcome-view';
@@ -28,6 +30,10 @@ const VIEW_MOTION_PROPS = {
   },
 };
 
+const PRECONNECT_MIC_OPTIONS: TrackPublishOptions = {
+  preConnectBuffer: true,
+};
+
 interface ViewControllerProps {
   appConfig: AppConfig;
 }
@@ -35,6 +41,16 @@ interface ViewControllerProps {
 export function ViewController({ appConfig }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
   const { resolvedTheme } = useTheme();
+  const handleStartCall = useCallback(() => {
+    return start({
+      tracks: {
+        microphone: {
+          enabled: true,
+          publishOptions: PRECONNECT_MIC_OPTIONS,
+        },
+      },
+    });
+  }, [start]);
 
   return (
     <AnimatePresence mode='wait'>
@@ -44,7 +60,7 @@ export function ViewController({ appConfig }: ViewControllerProps) {
           key='welcome'
           {...VIEW_MOTION_PROPS}
           startButtonText={appConfig.startButtonText}
-          onStartCall={start}
+          onStartCall={handleStartCall}
         />
       )}
       {/* Session view */}

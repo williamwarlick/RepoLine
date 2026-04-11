@@ -3,7 +3,7 @@
 import { useAgent, useSessionContext, useSessionMessages } from '@livekit/components-react';
 import { AnimatePresence, type MotionProps, motion } from 'motion/react';
 import type React from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { AgentChatTranscript } from '@/components/agents-ui/agent-chat-transcript';
 import {
   AgentControlBar,
@@ -179,7 +179,6 @@ export function AgentSessionView_01({
   const session = useSessionContext();
   const { messages } = useSessionMessages(session);
   const [chatOpen, setChatOpen] = useState(false);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
 
   const controls: AgentControlBarControls = {
@@ -189,15 +188,6 @@ export function AgentSessionView_01({
     camera: supportsVideoInput,
     screenShare: supportsScreenShare,
   };
-
-  useEffect(() => {
-    const lastMessage = messages.at(-1);
-    const lastMessageIsLocal = lastMessage?.from?.isLocal === true;
-
-    if (scrollAreaRef.current && lastMessageIsLocal) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
-    }
-  }, [messages]);
 
   return (
     <section
@@ -213,12 +203,12 @@ export function AgentSessionView_01({
           {chatOpen && (
             <motion.div
               {...CHAT_MOTION_PROPS}
-              className='flex h-full w-full flex-col gap-4 space-y-3 transition-opacity duration-300 ease-out'
+              className='flex h-full min-h-0 w-full flex-col gap-4 space-y-3 overflow-hidden transition-opacity duration-300 ease-out'
             >
               <AgentChatTranscript
                 agentState={agentState}
                 messages={messages}
-                className='mx-auto w-full max-w-2xl [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:pt-40 md:[&>div>div]:px-6'
+                className='mx-auto h-full min-h-0 w-full max-w-2xl [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:pt-40 md:[&>div>div]:px-6'
               />
             </motion.div>
           )}

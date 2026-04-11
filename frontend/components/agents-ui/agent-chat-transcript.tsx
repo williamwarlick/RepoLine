@@ -13,6 +13,13 @@ import {
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { useRepolineArtifacts } from '@/hooks/useRepolineArtifacts';
 
+function stripInlineDiffBlocks(message: string): string {
+  return message
+    .replace(/```(?:diff|patch)\n[\s\S]*?```/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /**
  * Props for the AgentChatTranscript component.
  */
@@ -96,13 +103,19 @@ export function AgentChatTranscript({
           const { id, timestamp, from, message } = entry.value;
           const locale = navigator?.language ?? 'en-US';
           const messageOrigin = from?.isLocal ? 'user' : 'assistant';
+          const displayMessage =
+            messageOrigin === 'assistant' ? stripInlineDiffBlocks(message) : message;
           const time = new Date(timestamp);
           const title = time.toLocaleTimeString(locale, { timeStyle: 'full' });
+
+          if (!displayMessage) {
+            return null;
+          }
 
           return (
             <Message key={id} title={title} from={messageOrigin}>
               <MessageContent>
-                <MessageResponse>{message}</MessageResponse>
+                <MessageResponse>{displayMessage}</MessageResponse>
               </MessageContent>
             </Message>
           );
