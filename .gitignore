@@ -2,3 +2,5 @@
 .bridge/*.bak
 .venv/
 node_modules/
+output/playwright/
+test-results/
