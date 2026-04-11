@@ -97,7 +97,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
       )}
     >
       <head>{styles && <style>{styles}</style>}</head>
-      <body className='overflow-x-hidden'>
+      <body suppressHydrationWarning className='overflow-x-hidden'>
         <ThemeProvider
           attribute='class'
           defaultTheme='system'

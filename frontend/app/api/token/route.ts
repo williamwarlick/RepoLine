@@ -1,4 +1,3 @@
-import { RoomConfiguration } from '@livekit/protocol';
 import { AccessToken, type AccessTokenOptions, type VideoGrant } from 'livekit-server-sdk';
 import { NextResponse } from 'next/server';
 
@@ -16,6 +15,12 @@ const LIVEKIT_URL = process.env.LIVEKIT_URL;
 
 // don't cache the results
 export const revalidate = 0;
+
+type RoomConfigPayload = Record<string, unknown>;
+
+function isRoomConfigPayload(value: unknown): value is RoomConfigPayload {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 export async function POST(req: Request) {
   if (process.env.NODE_ENV !== 'development') {
@@ -37,8 +42,10 @@ export async function POST(req: Request) {
 
     // Parse room config from request body.
     const body = await req.json();
-    // Recreate the RoomConfiguration object from JSON object.
-    const roomConfig = RoomConfiguration.fromJson(body?.room_config, { ignoreUnknownFields: true });
+    const roomConfig =
+      isRoomConfigPayload(body) && isRoomConfigPayload(body.room_config)
+        ? body.room_config
+        : undefined;
 
     // Generate participant token
     const participantName = 'user';
@@ -73,7 +80,7 @@ export async function POST(req: Request) {
 function createParticipantToken(
   userInfo: AccessTokenOptions,
   roomName: string,
-  roomConfig: RoomConfiguration
+  roomConfig?: RoomConfigPayload
 ): Promise<string> {
   const at = new AccessToken(API_KEY, API_SECRET, {
     ...userInfo,
@@ -89,7 +96,8 @@ function createParticipantToken(
   at.addGrant(grant);
 
   if (roomConfig) {
-    at.roomConfig = roomConfig;
+    // Keep the JWT room config as plain JSON so the client only sees the fields it requested.
+    at.roomConfig = roomConfig as unknown as AccessToken['roomConfig'];
   }
 
   return at.toJwt();
