@@ -1,0 +1,11 @@
+{
+  "name": "agent-phone-bridge",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.11",
+  "scripts": {
+    "setup": "bun run ./scripts/phone-bridge.ts setup",
+    "dev": "bun run ./scripts/phone-bridge.ts dev",
+    "doctor": "bun run ./scripts/phone-bridge.ts doctor"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "Claude Code Phone Number Scoped",
+  "rule": {
+    "dispatchRuleIndividual": {
+      "roomPrefix": "call-"
+    }
+  },
+  "roomConfig": {
+    "agents": [
+      {
+        "agentName": "clawdbot-agent"
+      }
+    ]
+  },
+  "inboundNumbers": [
+    "+14842951039"
+  ]
+}

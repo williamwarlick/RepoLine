@@ -1,0 +1,4 @@
+.bridge/
+.bridge/*.bak
+.venv/
+node_modules/

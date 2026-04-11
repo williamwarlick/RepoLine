@@ -1,0 +1,18 @@
+{
+  "rule": {
+    "dispatchRuleIndividual": {
+      "roomPrefix": "call-",
+      "pin": "5318"
+    }
+  },
+  "roomConfig": {
+    "agents": [
+      {
+        "agentName": "clawdbot-agent"
+      }
+    ]
+  },
+  "inboundNumbers": [
+    "+17047893364"
+  ]
+}
