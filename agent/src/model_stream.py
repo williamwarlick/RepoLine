@@ -1157,6 +1157,30 @@ def _embed_prompt_instructions(
     return "\n\n".join(sections)
 
 
+def _normalize_whitespace_with_end_indexes(text: str) -> tuple[str, list[int]]:
+    normalized_chars: list[str] = []
+    raw_end_indexes: list[int] = []
+    saw_non_whitespace = False
+    pending_space = False
+
+    for index, char in enumerate(text):
+        if char.isspace():
+            if saw_non_whitespace:
+                pending_space = True
+            continue
+
+        if pending_space and normalized_chars:
+            normalized_chars.append(" ")
+            raw_end_indexes.append(index)
+            pending_space = False
+
+        normalized_chars.append(char)
+        raw_end_indexes.append(index + 1)
+        saw_non_whitespace = True
+
+    return "".join(normalized_chars), raw_end_indexes
+
+
 def _extract_incremental_text(text: str | None, emitted_text: str) -> str | None:
     if not text:
         return None
@@ -1167,6 +1191,22 @@ def _extract_incremental_text(text: str | None, emitted_text: str) -> str | None
     if text.startswith(emitted_text):
         suffix = text[len(emitted_text) :]
         return suffix or None
+
+    normalized_text, raw_end_indexes = _normalize_whitespace_with_end_indexes(text)
+    normalized_emitted, _ = _normalize_whitespace_with_end_indexes(emitted_text)
+    if not normalized_text:
+        return None
+    if normalized_text == normalized_emitted:
+        return None
+    if (
+        normalized_emitted
+        and normalized_text.startswith(normalized_emitted)
+        and raw_end_indexes
+    ):
+        raw_end_index = raw_end_indexes[len(normalized_emitted) - 1]
+        suffix = text[raw_end_index:].lstrip()
+        return suffix or None
+
     return text
 
 

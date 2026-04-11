@@ -1,5 +1,6 @@
 from model_stream import (
     TextStreamConfig,
+    _extract_incremental_text,
     _extract_codex_item_artifacts,
     _extract_content_artifacts,
     _extract_embedded_code_artifacts,
@@ -219,3 +220,23 @@ def greet() -> None:
     assert [artifact.kind for artifact in artifacts] == ["diff", "code"]
     assert artifacts[0].language == "diff"
     assert artifacts[1].language == "python"
+
+
+def test_extract_incremental_text_ignores_whitespace_only_cursor_replays() -> None:
+    assert (
+        _extract_incremental_text(
+            "I found the issue.\n\nIt is in the Cursor result handler.",
+            "I found the issue. It is in the Cursor result handler.",
+        )
+        is None
+    )
+
+
+def test_extract_incremental_text_preserves_new_suffix_after_whitespace_reformat() -> None:
+    assert (
+        _extract_incremental_text(
+            "I found the issue.\n\nIt is in the Cursor result handler. I am patching it now.",
+            "I found the issue. It is in the Cursor result handler.",
+        )
+        == "I am patching it now."
+    )
