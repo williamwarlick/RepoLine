@@ -1,24 +1,30 @@
 # Phone Access
 
 This project can attach a LiveKit phone number to the same local agent used for browser sessions.
-
-As of April 11, 2026, LiveKit documents inbound phone calls as SIP participants routed into LiveKit rooms through dispatch rules. That lets the phone path reuse the existing local-worker architecture instead of moving the coding CLI into LiveKit Cloud.
+Inbound calls arrive as SIP participants routed into LiveKit rooms through dispatch rules. That lets the phone path reuse the same local-worker architecture as the browser path instead of moving the coding CLI into LiveKit Cloud.
 
 ## Requirements
 
-- a LiveKit project with an active phone number
-- the `lk` CLI linked to that project
+- a LiveKit Cloud project
+- the `lk` CLI
 - a local worker running with the same LiveKit credentials and agent name
 - a coding CLI installed and authenticated on the machine that runs the worker
 
 ## Setup flow
 
 1. Run `bun run setup`.
-2. Choose the LiveKit project, coding CLI, and repo workdir.
-3. Let setup inspect the project's existing phone numbers.
-4. If one number exists, setup can attach it automatically. If multiple numbers exist, choose the one to use.
-5. Pick the caller PIN.
-6. Setup creates or updates the dispatch rule scoped to the chosen number.
+2. If `lk` is not linked yet, setup can run `lk cloud auth` or let you add a project manually with API credentials.
+3. Choose the LiveKit project, coding CLI, and repo workdir.
+4. Let setup inspect the project's existing phone numbers.
+5. If one number exists, setup can attach it automatically. If multiple numbers exist, choose the one to use.
+6. If no active number exists yet, setup can search LiveKit for a US local number and purchase it from the CLI before continuing.
+7. Pick the caller PIN.
+8. Setup creates or updates the dispatch rule associated with the chosen number.
+
+## Number provisioning note
+
+Available numbers, regions, and charges depend on your LiveKit account and plan.
+RepoLine can search and purchase a US local number from the CLI, but it does not hide LiveKit billing or regional availability constraints.
 
 ## Daily use
 

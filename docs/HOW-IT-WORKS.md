@@ -8,9 +8,10 @@ LiveKit handles media transport, speech-to-text, text-to-speech, and optional te
 
 1. A browser session or phone call joins a LiveKit room.
 2. LiveKit converts speech into text.
-3. The bridge waits for a final user transcript, then starts or resumes a CLI turn.
+3. Voice turns wait for a final transcript, while browser chat turns can be submitted immediately.
 4. Provider output is broken into short spoken chunks when possible.
 5. LiveKit speaks those chunks back into the room.
+6. The browser UI can also show the message transcript and any RepoLine artifact cards the bridge publishes.
 
 ## What lives where
 
@@ -20,9 +21,15 @@ LiveKit handles media transport, speech-to-text, text-to-speech, and optional te
 
 ## Conversation state
 
-The bridge does not mirror full transcript history locally.
+The bridge does not maintain its own second copy of the full CLI conversation thread.
 
-It keeps only the room-scoped provider session identifier it needs to resume the next turn. The coding CLI remains the source of truth for the conversation.
+It does keep a few local runtime artifacts:
+
+- the last completed provider session identifier in memory so the running worker can resume the next turn
+- JSONL telemetry at `agent/logs/bridge-telemetry.jsonl` by default
+- call summaries at `agent/logs/latest-call.md` and `agent/logs/calls/*.md`
+
+The coding CLI remains the source of truth for the actual conversation thread. If you restart the worker, the in-memory resume session identifier is lost and the next turn starts fresh from the bridge side.
 
 ## Streaming behavior
 

@@ -1,6 +1,7 @@
 # Costs and Limits
 
-Verified against LiveKit pricing and documentation on April 11, 2026.
+This page documents the cost drivers created by RepoLine's default architecture.
+It does not try to freeze exact LiveKit pricing, because those numbers can change independently of the repo.
 
 ## What the default setup uses
 
@@ -21,50 +22,30 @@ Current defaults in [agent/.env.example](../agent/.env.example) are:
 - STT: `deepgram/nova-3`
 - TTS: `cartesia/sonic-3`
 - recordings, traces, logs, and transcripts: off by default
+- local bridge telemetry: on by default in `agent/logs/bridge-telemetry.jsonl`
 - Prometheus metrics: off until `BRIDGE_PROMETHEUS_PORT` is set
 
 ## Biggest cost lines
 
 - Browser sessions: WebRTC minutes plus STT and TTS inference
 - Phone sessions: inbound calling minutes plus the same shared STT and TTS inference pool
-- Observability: only billed when you enable recordings or event collection
+- Purchased phone numbers: optional but billable in many LiveKit plans
+- LiveKit observability: only billed when you enable recordings or cloud event collection
 
-## Included quotas that matter most
+## What this repo does not add to your LiveKit bill
 
-| Resource | Build (`$0/mo`) | Ship (`$50/mo`) | Why it matters here |
-| --- | --- | --- | --- |
-| LiveKit Inference credits | `$2.50` | `$5.00` | Shared across STT and TTS |
-| WebRTC minutes | `5,000` | `150,000`, then `$0.0005/min` | Browser sessions |
-| US local phone numbers | `1 free number` | `1 free number`, then `$1/month` per extra | Optional telephony |
-| US local inbound minutes | `50` | `100`, then `$0.01/min` | Usually the first phone-specific limit |
-| Agent session recordings | `1,000 min` | `5,000 min`, then `$0.005/min` | Only relevant if recordings are enabled |
-| Agent observability events | `100,000` | `500,000`, then `$0.00003/event` | Traces, logs, and transcripts |
+- Local CLI execution itself. RepoLine runs the coding CLI on your machine.
+- Local bridge telemetry files such as `agent/logs/bridge-telemetry.jsonl` and `agent/logs/latest-call.md`.
+- Repo-local skill installs in the target repo.
 
-Two Build-plan rules matter in practice:
+## Practical limit notes
 
-- Build quotas are hard limits. When you hit them, usage fails instead of billing overages.
-- Build quotas and concurrency limits are shared across all of your free LiveKit projects.
+- Browser usage is usually constrained by your LiveKit transport and inference quotas, not by RepoLine.
+- Phone usage adds telephony-specific limits and charges on top of the same STT/TTS pool used by browser sessions.
+- If you enable LiveKit recordings, logs, traces, or transcripts, you should expect extra cloud usage beyond the default local-worker path.
+- RepoLine does not smooth over LiveKit plan limits. If your account cannot create numbers, start inference, or join rooms, the bridge cannot proceed.
 
-LiveKit also rounds time-based usage up to the next minute. A 10-second connection bills as 1 minute, and a 70-second connection bills as 2 minutes.
-
-## Inference pricing for the repo defaults
-
-LiveKit currently lists:
-
-- `deepgram/nova-3` multilingual STT at `$0.0092/min` on Build and Ship
-- `cartesia/sonic-3` TTS at `$50.00` per million characters on Build and Ship
-
-That means browser usage is usually limited by inference credits well before WebRTC minutes. Phone usage often hits included inbound-minute quotas before it exhausts the shared inference credit pool.
-
-## Concurrency and limit checks
-
-LiveKit's current Build-plan limits most likely to affect this repo are:
-
-- `5` active STT inference connections
-- `5` active TTS inference connections
-- `100` total participants across rooms
-
-Those limits come from LiveKit's quotas and limits documentation, not from this repo.
+## Check current pricing and quotas
 
 ## Sources
 

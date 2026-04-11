@@ -10,6 +10,16 @@ import {
 } from '@/lib/access-control';
 
 const PUBLIC_FILE_PATTERN = /\.(?:css|js|map|json|txt|svg|png|jpg|jpeg|gif|webp|ico|woff2?|otf)$/i;
+const BLOCKED_HOSTS_ENV_NAME = 'REPOLINE_BLOCKED_HOSTS';
+
+function getBlockedHosts(env: NodeJS.ProcessEnv = process.env): Set<string> {
+  return new Set(
+    (env[BLOCKED_HOSTS_ENV_NAME] ?? '')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
 
 function isBypassedPath(pathname: string): boolean {
   return (
@@ -22,6 +32,20 @@ function isBypassedPath(pathname: string): boolean {
 }
 
 export async function middleware(req: NextRequest) {
+  const requestHost =
+    req.headers.get('x-forwarded-host')?.trim().toLowerCase() ??
+    req.headers.get('host')?.trim().toLowerCase() ??
+    req.nextUrl.host.trim().toLowerCase();
+  if (getBlockedHosts().has(requestHost)) {
+    return new NextResponse('Not Found', {
+      status: 404,
+      headers: {
+        'Cache-Control': 'no-store',
+        'X-Robots-Tag': 'noindex, nofollow',
+      },
+    });
+  }
+
   if (!isAccessProtectionEnabled()) {
     return NextResponse.next();
   }

@@ -19,26 +19,35 @@
 </p>
 
 RepoLine bridges a LiveKit phone or browser session to a coding CLI running in a local repo.
-The model stays local to your machine, keeps its existing auth and tool access, and speaks results back over voice.
+The CLI session stays local to your machine, keeps its existing auth and tool access, and speaks results back over voice.
+Model inference still happens wherever your chosen coding CLI normally sends it.
 
 ## Quick Start
 
 Prerequisites:
 
-- `claude`, `codex`, or `cursor-agent`, installed and authenticated
-- `lk`, already linked to the LiveKit project you want to use
-- `bun`
-- `uv`
+- `claude`, `codex`, or `cursor-agent` for the coding CLI you want to bridge
+- `bun`, `uv`, and `lk`
+
+Fresh machine?
+
+```bash
+./scripts/bootstrap.sh
+```
+
+The bootstrap script can install `bun`, `uv`, `lk`, and one supported coding CLI for you.
+The repo includes [`.mise.toml`](./.mise.toml) only to pin Bun in environments where `bun` comes from a `mise` shim.
 
 Run:
 
 ```bash
+./scripts/bootstrap.sh
 bun run setup
-bun run live
 bun run doctor
+bun run live
 ```
 
-`bun run setup` writes the local env files, installs dependencies, installs the RepoLine voice skill into the target repo, and can wire phone access if your LiveKit project already has a number.
+`bun run setup` can install missing local tools, run `lk cloud auth`, add a LiveKit project manually, write the local env files, install dependencies, install the RepoLine voice skill into the target repo, and wire phone access. If the project does not have an active LiveKit number yet, setup can search for a US local number and purchase it from the CLI before it creates the dispatch rule.
 
 ## Run Modes
 
@@ -51,6 +60,8 @@ bun run doctor
 - connects browser sessions or phone calls to a local coding CLI workdir
 - supports `claude`, `codex`, and `cursor`
 - speaks streamed output as soon as the provider gives usable text
+- supports browser chat input alongside voice
+- publishes repo artifacts into the browser transcript when the bridge emits them
 - keeps repo access, auth, and tool execution on your machine
 
 ## Security
@@ -59,7 +70,10 @@ RepoLine is local-first by default.
 
 - new setups default to `BRIDGE_ACCESS_POLICY=readonly`
 - the frontend binds to `127.0.0.1` unless you explicitly opt into remote access
+- hosted frontends should stay private and use `REPOLINE_ACCESS_PIN`
 - the local worker still has to be running for voice sessions and phone calls to reach your repo
+
+See [SECURITY.md](./SECURITY.md) before exposing RepoLine outside your laptop or LAN.
 
 ## Docs
 
@@ -67,6 +81,7 @@ RepoLine is local-first by default.
 - [How it works](./docs/HOW-IT-WORKS.md)
 - [Phone access](./docs/PHONE.md)
 - [Costs and limits](./docs/COSTS.md)
+- [Security policy](./SECURITY.md)
 
 ## License
 

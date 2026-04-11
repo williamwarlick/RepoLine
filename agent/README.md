@@ -5,6 +5,7 @@ This LiveKit agent does three things:
 1. receives user speech from LiveKit STT
 2. sends the final transcript to the configured coding CLI
 3. speaks streamed CLI output back through LiveKit TTS
+4. writes local bridge telemetry and call summaries by default
 
 ## Commands
 
@@ -27,10 +28,19 @@ Use `console` instead of `dev` if you want to test the agent locally without the
 - `BRIDGE_THINKING_LEVEL`
 - `BRIDGE_ACCESS_POLICY` (`readonly`, `workspace-write`, or `owner`)
 - `BRIDGE_SYSTEM_PROMPT` for explicit overrides
+- `BRIDGE_STATUS_SPEECH_ENABLED` to let the bridge speak interim status updates
+- `BRIDGE_TELEMETRY_JSONL` to change the local telemetry output path
 - `LIVEKIT_STT_MODEL`
 - `LIVEKIT_TTS_MODEL`
+- `LIVEKIT_RECORD_AUDIO`, `LIVEKIT_RECORD_TRACES`, `LIVEKIT_RECORD_LOGS`, and `LIVEKIT_RECORD_TRANSCRIPT`
 
 RepoLine now expects a hard cutover to the `BRIDGE_*` env shape. The selected repo must have the RepoLine voice instructions installed for the configured CLI unless you explicitly set `BRIDGE_SYSTEM_PROMPT`.
+
+By default, bridge telemetry is written under `agent/logs/`:
+
+- `bridge-telemetry.jsonl`: raw event stream
+- `latest-call.md`: rolling summary for the most recent session
+- `calls/*.md`: per-call history summaries written when a session closes
 
 Access policy guide:
 

@@ -39,7 +39,7 @@ function readOptionalEnv(key: string): string | undefined {
 export const APP_CONFIG_DEFAULTS: AppConfig = {
   companyName: 'RepoLine',
   pageTitle: 'RepoLine',
-  pageDescription: 'Call your codebase from your phone or browser using Claude Code and LiveKit.',
+  pageDescription: 'Call your local coding CLI from your phone or browser over LiveKit.',
 
   supportsChatInput: true,
   supportsVideoInput: false,

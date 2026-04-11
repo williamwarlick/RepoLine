@@ -114,33 +114,25 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           enableSystem
           disableTransitionOnChange
         >
-          <header className='fixed top-0 left-0 z-50 hidden w-full flex-row justify-between p-6 md:flex'>
+          <header className='fixed top-0 left-0 z-50 hidden w-full items-center p-6 md:flex'>
             <a
               target='_blank'
               rel='noopener noreferrer'
               href='https://github.com/williamwarlick/RepoLine'
-              className='scale-100 transition-transform duration-300 hover:scale-110'
+              className='inline-flex scale-100 items-center gap-3 transition-transform duration-300 hover:scale-105'
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={logo} alt={`${companyName} Logo`} className='block size-6 dark:hidden' />
+              <img src={logo} alt={`${companyName} Logo`} className='block size-9 dark:hidden' />
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={logoDark ?? logo}
                 alt={`${companyName} Logo`}
-                className='hidden size-6 dark:block'
+                className='hidden size-9 dark:block'
               />
+              <span className='text-foreground font-mono text-xs font-bold tracking-[0.28em] uppercase'>
+                {companyName}
+              </span>
             </a>
-            <span className='text-foreground font-mono text-xs font-bold tracking-wider uppercase'>
-              Built with{' '}
-              <a
-                target='_blank'
-                rel='noopener noreferrer'
-                href='https://docs.livekit.io/agents'
-                className='underline underline-offset-4'
-              >
-                LiveKit Agents
-              </a>
-            </span>
           </header>
 
           {children}

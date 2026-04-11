@@ -6,12 +6,12 @@ interface UnlockPageProps {
 }
 
 function getErrorMessage(errorValue: string | undefined): string | null {
-  if (errorValue === 'invalid_pin') {
-    return 'That PIN was not accepted.';
+  if (errorValue === 'invalid_access_code') {
+    return 'That access code was not accepted.';
   }
 
-  if (errorValue === 'missing_pin') {
-    return 'Enter the PIN to continue.';
+  if (errorValue === 'missing_access_code') {
+    return 'Enter the access code to continue.';
   }
 
   return null;
@@ -31,24 +31,24 @@ export default async function UnlockPage({ searchParams }: UnlockPageProps) {
           <p className='font-mono text-xs font-bold tracking-[0.2em] uppercase text-zinc-500'>
             Private Access
           </p>
-          <h1 className='text-2xl font-semibold tracking-tight'>Enter RepoLine PIN</h1>
+          <h1 className='text-2xl font-semibold tracking-tight'>Enter RepoLine Access Code</h1>
           <p className='text-muted-foreground text-sm leading-6'>
-            This deployment is private. Enter the access PIN to open the voice session UI.
+            This deployment is private. Enter the private access code to open the voice session UI.
           </p>
         </div>
 
         <form action='/api/unlock' method='post' className='mt-8 space-y-4'>
           <input type='hidden' name={ACCESS_REDIRECT_PARAM} value={nextPath} />
           <label className='block space-y-2 text-left'>
-            <span className='text-sm font-medium'>PIN</span>
+            <span className='text-sm font-medium'>Access code</span>
             <input
-              name='pin'
+              name='accessCode'
               type='password'
-              inputMode='numeric'
-              autoComplete='one-time-code'
+              autoComplete='current-password'
+              spellCheck={false}
               required
               className='border-input bg-background w-full rounded-2xl border px-4 py-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-emerald-500'
-              placeholder='Enter access PIN'
+              placeholder='Enter private access code'
             />
           </label>
           {errorMessage ? (
