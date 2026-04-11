@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "claude-code-phone-bridge-agent"
 version = "1.0.0"
-description = "LiveKit voice bridge that streams Claude Code output into speech"
+description = "LiveKit voice bridge that streams coding CLI output into speech"
 requires-python = ">=3.10, <3.15"
 
 dependencies = [

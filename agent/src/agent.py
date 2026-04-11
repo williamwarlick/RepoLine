@@ -10,23 +10,37 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
-from livekit.agents import Agent, AgentServer, AgentSession, JobContext, JobProcess, cli, inference
+from livekit.agents import (
+    Agent,
+    AgentServer,
+    AgentSession,
+    JobContext,
+    JobProcess,
+    cli,
+    inference,
+)
 from livekit.agents.metrics import log_metrics
 from livekit.plugins import silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-from claude_stream import ClaudeStreamConfig, ClaudeStreamError, stream_claude_events
+from model_stream import (
+    TextStreamConfig,
+    TextStreamError,
+    normalize_provider,
+    provider_display_name,
+    stream_text_events,
+)
+from repoline_skill import DEFAULT_REPOLINE_SKILL_NAME, resolve_repoline_skill_prompt
 from telemetry import BridgeTelemetry
 from voice_behavior import build_initial_status_message
 
-
-logger = logging.getLogger("claude-code-phone-bridge")
+logger = logging.getLogger("repoline-bridge")
 
 load_dotenv(".env.local")
 
 
 DEFAULT_SYSTEM_PROMPT = (
-    "You are speaking aloud through a LiveKit voice session connected to Claude Code. "
+    "You are speaking aloud through a LiveKit voice session connected to a local coding agent CLI. "
     "Keep replies concise, conversational, and easy to follow by ear. "
     "Avoid markdown, bullet lists, tables, and code fences unless the user explicitly asks. "
     "Before you inspect files, run commands, call tools, or pause for deeper reasoning, first say "
@@ -36,6 +50,27 @@ DEFAULT_SYSTEM_PROMPT = (
     "continuing. While work is in progress, keep giving short spoken progress updates instead of "
     "going silent."
 )
+
+
+def _resolve_bridge_system_prompt() -> str:
+    explicit_system_prompt = os.getenv("BRIDGE_SYSTEM_PROMPT")
+    if explicit_system_prompt is None or not explicit_system_prompt.strip():
+        legacy_prompt = os.getenv("CLAUDE_SYSTEM_PROMPT")
+        explicit_system_prompt = legacy_prompt if legacy_prompt and legacy_prompt.strip() else None
+
+    provider = normalize_provider(os.getenv("BRIDGE_CLI_PROVIDER", "claude"))
+    working_directory = (
+        os.getenv("BRIDGE_WORKDIR") or os.getenv("CLAUDE_WORKDIR") or str(Path.home())
+    )
+    skill_name = os.getenv("REPOLINE_SKILL_NAME", DEFAULT_REPOLINE_SKILL_NAME)
+
+    return resolve_repoline_skill_prompt(
+        provider=provider,
+        working_directory=working_directory,
+        explicit_system_prompt=explicit_system_prompt,
+        default_system_prompt=DEFAULT_SYSTEM_PROMPT,
+        skill_name=skill_name,
+    ).prompt
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -57,12 +92,22 @@ class BridgeSettings:
     agent_name: str = os.getenv("LIVEKIT_AGENT_NAME", "clawdbot-agent")
     greeting: str = os.getenv(
         "BRIDGE_GREETING",
-        "Claude Code phone bridge is live. What do you want to work on?",
+        "RepoLine is live. What do you want to work on?",
     )
-    chunk_chars: int = int(os.getenv("CLAUDE_CHUNK_CHARS", "140"))
-    model: str | None = os.getenv("CLAUDE_MODEL") or None
-    system_prompt: str = os.getenv("CLAUDE_SYSTEM_PROMPT", DEFAULT_SYSTEM_PROMPT)
-    working_directory: str = os.getenv("CLAUDE_WORKDIR") or str(Path.home())
+    provider: str = normalize_provider(os.getenv("BRIDGE_CLI_PROVIDER", "claude"))
+    skill_name: str = os.getenv("REPOLINE_SKILL_NAME", DEFAULT_REPOLINE_SKILL_NAME)
+    chunk_chars: int = int(
+        os.getenv("BRIDGE_CHUNK_CHARS", os.getenv("CLAUDE_CHUNK_CHARS", "140"))
+    )
+    model: str | None = os.getenv("BRIDGE_MODEL") or os.getenv("CLAUDE_MODEL") or None
+    system_prompt: str = _resolve_bridge_system_prompt()
+    working_directory: str = (
+        os.getenv("BRIDGE_WORKDIR") or os.getenv("CLAUDE_WORKDIR") or str(Path.home())
+    )
+    codex_dangerously_bypass_approvals_and_sandbox: bool = _env_bool(
+        "CODEX_DANGEROUSLY_BYPASS_APPROVALS_AND_SANDBOX",
+        True,
+    )
     final_transcript_debounce_seconds: float = float(
         os.getenv("FINAL_TRANSCRIPT_DEBOUNCE_SECONDS", "0.85")
     )
@@ -101,20 +146,26 @@ SERVER.setup_fnc = prewarm
 def _new_agent() -> Agent:
     return Agent(
         instructions=(
-            "You are the transport layer for a Claude Code voice bridge. "
-            "LiveKit handles audio; Claude Code handles the actual replies."
+            "You are the transport layer for a RepoLine voice bridge. "
+            "LiveKit handles audio; the configured coding CLI handles the actual replies."
         )
     )
 
 
 @SERVER.rtc_session(agent_name=SETTINGS.agent_name)
-async def claude_code_bridge(ctx: JobContext) -> None:
-    ctx.log_context_fields = {"room": ctx.room.name, "workdir": SETTINGS.working_directory}
+async def coding_cli_bridge(ctx: JobContext) -> None:
+    ctx.log_context_fields = {
+        "room": ctx.room.name,
+        "provider": SETTINGS.provider,
+        "workdir": SETTINGS.working_directory,
+    }
     telemetry = BridgeTelemetry(SETTINGS.telemetry_jsonl_path)
     telemetry.emit(
         "bridge_session_started",
         room=ctx.room.name,
         livekit_url=os.getenv("LIVEKIT_URL"),
+        provider=SETTINGS.provider,
+        model=SETTINGS.model,
         workdir=SETTINGS.working_directory,
         stt_model=SETTINGS.stt_model,
         tts_model=SETTINGS.tts_model,
@@ -141,7 +192,7 @@ async def claude_code_bridge(ctx: JobContext) -> None:
     pending_status_speech = None
     pending_user_parts: list[str] = []
     pending_turn_id: str | None = None
-    last_completed_claude_session_id: str | None = None
+    last_completed_stream_session_id: str | None = None
     turn_lock = asyncio.Lock()
 
     async def stop_active_turn() -> None:
@@ -212,43 +263,54 @@ async def claude_code_bridge(ctx: JobContext) -> None:
                 pending_status_speech = None
 
     async def run_turn(turn_id: str, user_text: str) -> None:
-        nonlocal active_speech, last_completed_claude_session_id
+        nonlocal active_speech, last_completed_stream_session_id
 
-        claude_session_id = str(uuid.uuid4())
+        provider_name = provider_display_name(SETTINGS.provider)
+        stream_session_id = str(uuid.uuid4()) if SETTINGS.provider == "claude" else None
+        active_session_id = stream_session_id or last_completed_stream_session_id
         turn_completed = False
         saw_text = False
         error_message: str | None = None
         started_at = time.monotonic()
 
-        config = ClaudeStreamConfig(
+        config = TextStreamConfig(
             prompt=user_text,
-            session_id=claude_session_id,
-            resume_session_id=last_completed_claude_session_id,
+            provider=SETTINGS.provider,
+            session_id=stream_session_id,
+            resume_session_id=last_completed_stream_session_id,
             system_prompt=SETTINGS.system_prompt,
             model=SETTINGS.model,
             working_directory=SETTINGS.working_directory,
             chunk_chars=SETTINGS.chunk_chars,
+            codex_dangerously_bypass_approvals_and_sandbox=(
+                SETTINGS.codex_dangerously_bypass_approvals_and_sandbox
+            ),
         )
 
         telemetry.emit(
-            "claude_turn_started",
+            "model_turn_started",
             turn_id=turn_id,
-            claude_session_id=claude_session_id,
-            resume_session_id=last_completed_claude_session_id,
+            provider=SETTINGS.provider,
+            stream_session_id=stream_session_id,
+            resume_session_id=last_completed_stream_session_id,
             transcript=user_text,
         )
 
-        event_stream = stream_claude_events(config)
+        event_stream = stream_text_events(config)
         speech_handle = None
 
         async def consume_event(event) -> str | None:
-            nonlocal error_message, saw_text, turn_completed
+            nonlocal active_session_id, error_message, saw_text, turn_completed
+
+            if event.session_id:
+                active_session_id = event.session_id
 
             if event.type == "status":
                 telemetry.emit(
-                    "claude_status",
+                    "model_status",
                     turn_id=turn_id,
-                    claude_session_id=claude_session_id,
+                    provider=SETTINGS.provider,
+                    stream_session_id=active_session_id,
                     message=event.message,
                     latency_ms=round((time.monotonic() - started_at) * 1000, 1),
                 )
@@ -257,9 +319,10 @@ async def claude_code_bridge(ctx: JobContext) -> None:
             if event.type == "speech_chunk" and event.text:
                 saw_text = True
                 telemetry.emit(
-                    "claude_speech_chunk",
+                    "model_speech_chunk",
                     turn_id=turn_id,
-                    claude_session_id=claude_session_id,
+                    provider=SETTINGS.provider,
+                    stream_session_id=active_session_id,
                     text=event.text,
                     final=event.final,
                     latency_ms=round((time.monotonic() - started_at) * 1000, 1),
@@ -267,11 +330,12 @@ async def claude_code_bridge(ctx: JobContext) -> None:
                 return event.text
 
             if event.type == "error":
-                error_message = event.message or "Claude Code failed."
+                error_message = event.message or f"{provider_name} failed."
                 telemetry.emit(
-                    "claude_error",
+                    "model_error",
                     turn_id=turn_id,
-                    claude_session_id=claude_session_id,
+                    provider=SETTINGS.provider,
+                    stream_session_id=active_session_id,
                     message=error_message,
                     exit_code=event.exit_code,
                     latency_ms=round((time.monotonic() - started_at) * 1000, 1),
@@ -281,9 +345,10 @@ async def claude_code_bridge(ctx: JobContext) -> None:
             if event.type == "done":
                 turn_completed = error_message is None
                 telemetry.emit(
-                    "claude_done",
+                    "model_done",
                     turn_id=turn_id,
-                    claude_session_id=claude_session_id,
+                    provider=SETTINGS.provider,
+                    stream_session_id=active_session_id,
                     exit_code=event.exit_code,
                     completed=turn_completed,
                     latency_ms=round((time.monotonic() - started_at) * 1000, 1),
@@ -303,46 +368,58 @@ async def claude_code_bridge(ctx: JobContext) -> None:
 
             if first_chunk is None:
                 if error_message:
-                    raise ClaudeStreamError(error_message)
-                raise ClaudeStreamError("Claude Code finished without producing speech text.")
+                    raise TextStreamError(error_message)
+                raise TextStreamError(f"{provider_name} finished without producing speech text.")
 
             await stop_pending_status()
             telemetry.emit(
-                "claude_first_chunk_ready",
+                "model_first_chunk_ready",
                 turn_id=turn_id,
-                claude_session_id=claude_session_id,
+                provider=SETTINGS.provider,
+                stream_session_id=active_session_id,
                 latency_ms=round((time.monotonic() - started_at) * 1000, 1),
             )
 
             async def speech_chunks():
-                nonlocal last_completed_claude_session_id
+                nonlocal last_completed_stream_session_id
                 yield first_chunk
                 async for event in event_stream:
                     chunk = await consume_event(event)
                     if chunk:
                         yield chunk
-                if turn_completed:
-                    last_completed_claude_session_id = claude_session_id
+                if turn_completed and active_session_id:
+                    last_completed_stream_session_id = active_session_id
 
             speech_handle = session.say(
                 speech_chunks(),
                 allow_interruptions=True,
             )
             active_speech = speech_handle
-            telemetry.emit("tts_playout_started", turn_id=turn_id, claude_session_id=claude_session_id)
+            telemetry.emit(
+                "tts_playout_started",
+                turn_id=turn_id,
+                provider=SETTINGS.provider,
+                stream_session_id=active_session_id,
+            )
             await speech_handle.wait_for_playout()
             telemetry.emit(
                 "tts_playout_finished",
                 turn_id=turn_id,
-                claude_session_id=claude_session_id,
+                provider=SETTINGS.provider,
+                stream_session_id=active_session_id,
                 latency_ms=round((time.monotonic() - started_at) * 1000, 1),
             )
         except StopAsyncIteration:
-            logger.warning("Claude finished without returning speech text")
-            telemetry.emit("claude_empty_turn", turn_id=turn_id, claude_session_id=claude_session_id)
-        except ClaudeStreamError as exc:
-            logger.exception("Claude stream failed: %s", exc)
-            message = str(exc).strip() or "Claude Code failed before returning a response."
+            logger.warning("%s finished without returning speech text", provider_name)
+            telemetry.emit(
+                "model_empty_turn",
+                turn_id=turn_id,
+                provider=SETTINGS.provider,
+                stream_session_id=active_session_id,
+            )
+        except TextStreamError as exc:
+            logger.exception("%s stream failed: %s", provider_name, exc)
+            message = str(exc).strip() or f"{provider_name} failed before returning a response."
             await stop_pending_status()
             speech_handle = session.say(
                 message,
@@ -351,9 +428,10 @@ async def claude_code_bridge(ctx: JobContext) -> None:
             )
             active_speech = speech_handle
             telemetry.emit(
-                "claude_error_spoken",
+                "model_error_spoken",
                 turn_id=turn_id,
-                claude_session_id=claude_session_id,
+                provider=SETTINGS.provider,
+                stream_session_id=active_session_id,
                 message=message,
             )
             await speech_handle.wait_for_playout()
@@ -361,18 +439,25 @@ async def claude_code_bridge(ctx: JobContext) -> None:
             if speech_handle is not None and not speech_handle.done():
                 with contextlib.suppress(RuntimeError):
                     speech_handle.interrupt(force=True)
-            telemetry.emit("claude_turn_cancelled", turn_id=turn_id, claude_session_id=claude_session_id)
+            telemetry.emit(
+                "model_turn_cancelled",
+                turn_id=turn_id,
+                provider=SETTINGS.provider,
+                stream_session_id=active_session_id,
+            )
             raise
         finally:
             if turn_completed:
                 logger.info(
-                    "Claude turn completed successfully; next turn will resume from session %s",
-                    claude_session_id,
+                    "%s turn completed successfully; next turn will resume from session %s",
+                    provider_name,
+                    active_session_id,
                 )
             telemetry.emit(
-                "claude_turn_finished",
+                "model_turn_finished",
                 turn_id=turn_id,
-                claude_session_id=claude_session_id,
+                provider=SETTINGS.provider,
+                stream_session_id=active_session_id,
                 completed=turn_completed,
                 saw_text=saw_text,
                 error_message=error_message,
@@ -401,7 +486,7 @@ async def claude_code_bridge(ctx: JobContext) -> None:
             if not text:
                 await stop_pending_status()
                 return
-            logger.info("Starting Claude turn with merged transcript: %s", text)
+            logger.info("Starting %s turn with merged transcript: %s", SETTINGS.provider, text)
             telemetry.emit("turn_merged", turn_id=turn_id, transcript=text)
             await start_turn(turn_id, text)
         except asyncio.CancelledError:

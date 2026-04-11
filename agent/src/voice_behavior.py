@@ -3,10 +3,9 @@ from __future__ import annotations
 import asyncio
 import math
 import re
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from livekit import rtc
-
 
 SAMPLE_RATE = 24_000
 CHANNELS = 1

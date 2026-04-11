@@ -2,11 +2,14 @@
 
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import {
+  cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   renameSync,
+  symlinkSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
@@ -34,6 +37,7 @@ type SetupState = {
   livekit_project_name: string;
   livekit_url: string;
   agent_name: string;
+  bridge_provider: string;
   claude_workdir: string;
   phone: PhoneConfig | null;
 };
@@ -43,6 +47,7 @@ type RawState = {
   livekit_project_name: string;
   livekit_url: string;
   agent_name: string;
+  bridge_provider?: string;
   claude_workdir: string;
   phone?: {
     number: string;
@@ -76,6 +81,9 @@ const FRONTEND_ENV_PATH = join(FRONTEND_DIR, '.env.local');
 const STATE_DIR = join(REPO_ROOT, '.bridge');
 const STATE_PATH = join(STATE_DIR, 'state.json');
 const PHONE_NUMBER_STATUS_ACTIVE = 'PHONE_NUMBER_STATUS_ACTIVE';
+const REPOLINE_SKILL_NAME = 'repoline-voice-session';
+const REPOLINE_SKILL_SOURCE_DIR = join(REPO_ROOT, 'skills', REPOLINE_SKILL_NAME);
+const REPOLINE_SKILL_SOURCE_PATH = join(REPOLINE_SKILL_SOURCE_DIR, 'SKILL.md');
 
 class BridgeCliError extends Error {}
 
@@ -115,7 +123,7 @@ async function setupCommand(): Promise<void> {
   );
   console.log();
 
-  requireTools('claude', 'lk', 'uv', 'bun');
+  requireTools('lk', 'uv', 'bun');
 
   const agentEnv = loadEnvFile(AGENT_ENV_PATH);
   const frontendEnv = loadEnvFile(FRONTEND_ENV_PATH);
@@ -123,6 +131,9 @@ async function setupCommand(): Promise<void> {
 
   const ui = createPrompter();
   try {
+    const bridgeProvider = await selectBridgeProvider(ui, agentEnv, existingState);
+    requireTools(bridgeProvider);
+
     const project = await selectLiveKitProject(ui, agentEnv);
     const projectNumbers = listPhoneNumbers(project.name);
     const agentNameDefault =
@@ -133,8 +144,9 @@ async function setupCommand(): Promise<void> {
     const agentName = await ui.promptText('LiveKit agent name', agentNameDefault);
     const claudeWorkdir = await selectWorkdir(
       ui,
-      agentEnv.CLAUDE_WORKDIR ?? existingState?.claude_workdir ?? null
+      agentEnv.BRIDGE_WORKDIR ?? agentEnv.CLAUDE_WORKDIR ?? existingState?.claude_workdir ?? null
     );
+    const skillInstall = installRepoLineSkill(bridgeProvider, claudeWorkdir);
 
     let phoneConfig: PhoneConfig | null = null;
     const shouldSetupPhone = await ui.promptBool(
@@ -154,6 +166,7 @@ async function setupCommand(): Promise<void> {
     writeEnvFiles({
       project,
       agentName,
+      bridgeProvider,
       claudeWorkdir,
       existingAgentEnv: agentEnv,
       existingFrontendEnv: frontendEnv,
@@ -164,6 +177,7 @@ async function setupCommand(): Promise<void> {
       livekit_project_name: project.name,
       livekit_url: project.url,
       agent_name: agentName,
+      bridge_provider: bridgeProvider,
       claude_workdir: claudeWorkdir,
       phone: phoneConfig,
     });
@@ -183,7 +197,9 @@ async function setupCommand(): Promise<void> {
     console.log();
     console.log('Setup complete.');
     console.log(`- LiveKit project: ${project.name}`);
-    console.log(`- Claude workdir: ${claudeWorkdir}`);
+    console.log(`- Coding CLI: ${formatBridgeProvider(bridgeProvider)}`);
+    console.log(`- Workdir: ${claudeWorkdir}`);
+    console.log(`- RepoLine skill: ${skillInstall.targetPath} (${skillInstall.method})`);
     console.log(`- Agent name: ${agentName}`);
     if (phoneConfig) {
       console.log(`- Call this number to chat: ${phoneConfig.number}`);
@@ -256,39 +272,49 @@ async function devCommand(): Promise<void> {
 function doctorCommand(): void {
   const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
 
-  for (const tool of ['claude', 'lk', 'uv', 'bun']) {
-    checks.push(checkCommandAvailable(tool));
-  }
-
   checks.push(checkFileExists('Agent env', AGENT_ENV_PATH));
   checks.push(checkFileExists('Frontend env', FRONTEND_ENV_PATH));
   checks.push(checkFileExists('Frontend Bun lockfile', join(FRONTEND_DIR, 'bun.lock')));
+  checks.push(checkFileExists('RepoLine voice skill source', REPOLINE_SKILL_SOURCE_PATH));
 
   const agentEnv = loadEnvFile(AGENT_ENV_PATH);
   const frontendEnv = loadEnvFile(FRONTEND_ENV_PATH);
   const state = loadState();
+  const bridgeProvider = normalizeBridgeProvider(
+    agentEnv.BRIDGE_CLI_PROVIDER ?? state?.bridge_provider ?? 'claude'
+  );
+  const workdir = agentEnv.BRIDGE_WORKDIR ?? agentEnv.CLAUDE_WORKDIR ?? state?.claude_workdir ?? '';
+  const repolineSkillName = agentEnv.REPOLINE_SKILL_NAME ?? REPOLINE_SKILL_NAME;
 
-  for (const key of [
-    'LIVEKIT_URL',
-    'LIVEKIT_API_KEY',
-    'LIVEKIT_API_SECRET',
-    'LIVEKIT_AGENT_NAME',
-    'CLAUDE_WORKDIR',
-  ]) {
+  for (const tool of [bridgeProvider, 'lk', 'uv', 'bun']) {
+    checks.push(checkCommandAvailable(tool));
+  }
+
+  for (const key of ['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'LIVEKIT_AGENT_NAME']) {
     checks.push(checkEnvKey('Agent env', agentEnv, key));
   }
+  checks.push(
+    checkAnyEnvKey('Agent env bridge provider', agentEnv, ['BRIDGE_CLI_PROVIDER'], bridgeProvider)
+  );
+  checks.push(
+    checkAnyEnvKey('Agent env bridge workdir', agentEnv, ['BRIDGE_WORKDIR', 'CLAUDE_WORKDIR'])
+  );
+  checks.push(
+    checkAnyEnvKey('Agent env RepoLine skill', agentEnv, ['REPOLINE_SKILL_NAME'], repolineSkillName)
+  );
 
   for (const key of ['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'AGENT_NAME']) {
     checks.push(checkEnvKey('Frontend env', frontendEnv, key));
   }
 
-  checks.push(runStatusCheck('Claude auth', ['claude', 'auth', 'status'], REPO_ROOT));
+  checks.push(runStatusCheck(`${formatBridgeProvider(bridgeProvider)} auth`, bridgeAuthCommand(bridgeProvider), REPO_ROOT));
   checks.push(
     runStatusCheck('Agent dependencies', ['uv', 'sync', '--check'], AGENT_DIR, {
       VIRTUAL_ENV: null,
     })
   );
   checks.push(runStatusCheck('Frontend dependencies', ['bun', 'install', '--frozen-lockfile'], FRONTEND_DIR));
+  checks.push(checkInstalledRepoLineSkill(bridgeProvider, workdir, repolineSkillName));
 
   if (state) {
     checks.push(
@@ -387,10 +413,10 @@ async function selectWorkdir(
   const options = candidates.map((candidate) => `${basename(candidate)} (${candidate})`);
   options.push('Enter a path manually');
 
-  const selection = await ui.selectOption('Choose the Claude Code workdir', options, 0);
+  const selection = await ui.selectOption('Choose the coding CLI workdir', options, 0);
   if (selection === candidates.length) {
     while (true) {
-      const value = await ui.promptText('Path to the Claude Code repo', existingWorkdir ?? undefined);
+      const value = await ui.promptText('Path to the repo', existingWorkdir ?? undefined);
       const resolved = resolveHome(value);
       if (isDirectory(resolved)) {
         return resolved;
@@ -573,6 +599,7 @@ async function promptPin(
 function writeEnvFiles(options: {
   project: LiveKitProject;
   agentName: string;
+  bridgeProvider: string;
   claudeWorkdir: string;
   existingAgentEnv: Record<string, string>;
   existingFrontendEnv: Record<string, string>;
@@ -582,10 +609,33 @@ function writeEnvFiles(options: {
     LIVEKIT_API_KEY: options.project.apiKey,
     LIVEKIT_API_SECRET: options.project.apiSecret,
     LIVEKIT_AGENT_NAME: options.agentName,
+    BRIDGE_CLI_PROVIDER: options.bridgeProvider,
+    BRIDGE_WORKDIR: options.claudeWorkdir,
+    BRIDGE_MODEL:
+      options.existingAgentEnv.BRIDGE_MODEL ?? options.existingAgentEnv.CLAUDE_MODEL ?? '',
+    REPOLINE_SKILL_NAME:
+      options.existingAgentEnv.REPOLINE_SKILL_NAME ?? REPOLINE_SKILL_NAME,
+    BRIDGE_SYSTEM_PROMPT:
+      options.existingAgentEnv.BRIDGE_SYSTEM_PROMPT ??
+      options.existingAgentEnv.CLAUDE_SYSTEM_PROMPT ??
+      '',
+    BRIDGE_CHUNK_CHARS:
+      options.existingAgentEnv.BRIDGE_CHUNK_CHARS ??
+      options.existingAgentEnv.CLAUDE_CHUNK_CHARS ??
+      '140',
     CLAUDE_WORKDIR: options.claudeWorkdir,
-    CLAUDE_MODEL: options.existingAgentEnv.CLAUDE_MODEL ?? '',
-    CLAUDE_SYSTEM_PROMPT: options.existingAgentEnv.CLAUDE_SYSTEM_PROMPT ?? '',
-    CLAUDE_CHUNK_CHARS: options.existingAgentEnv.CLAUDE_CHUNK_CHARS ?? '140',
+    CLAUDE_MODEL:
+      options.existingAgentEnv.CLAUDE_MODEL ?? options.existingAgentEnv.BRIDGE_MODEL ?? '',
+    CLAUDE_SYSTEM_PROMPT:
+      options.existingAgentEnv.CLAUDE_SYSTEM_PROMPT ??
+      options.existingAgentEnv.BRIDGE_SYSTEM_PROMPT ??
+      '',
+    CLAUDE_CHUNK_CHARS:
+      options.existingAgentEnv.CLAUDE_CHUNK_CHARS ??
+      options.existingAgentEnv.BRIDGE_CHUNK_CHARS ??
+      '140',
+    CODEX_DANGEROUSLY_BYPASS_APPROVALS_AND_SANDBOX:
+      options.existingAgentEnv.CODEX_DANGEROUSLY_BYPASS_APPROVALS_AND_SANDBOX ?? 'true',
     FINAL_TRANSCRIPT_DEBOUNCE_SECONDS:
       options.existingAgentEnv.FINAL_TRANSCRIPT_DEBOUNCE_SECONDS ?? '0.85',
     LIVEKIT_STT_MODEL: options.existingAgentEnv.LIVEKIT_STT_MODEL ?? 'deepgram/nova-3',
@@ -595,7 +645,7 @@ function writeEnvFiles(options: {
       options.existingAgentEnv.LIVEKIT_TTS_VOICE ?? '9626c31c-bec5-4cca-baa8-f8ba9e84c8bc',
     BRIDGE_GREETING:
       options.existingAgentEnv.BRIDGE_GREETING ??
-      'Claude Code phone bridge is live. What do you want to work on?',
+      'RepoLine is live. What do you want to work on?',
   };
 
   const frontendEnv = {
@@ -677,6 +727,7 @@ function loadState(): SetupState | null {
     livekit_project_name: rawState.livekit_project_name,
     livekit_url: rawState.livekit_url,
     agent_name: rawState.agent_name,
+    bridge_provider: normalizeBridgeProvider(rawState.bridge_provider ?? 'claude'),
     claude_workdir: rawState.claude_workdir,
     phone: rawState.phone
       ? {
@@ -695,6 +746,79 @@ function requireTools(...tools: string[]): void {
   if (missing.length > 0) {
     throw new BridgeCliError(`missing required tools: ${missing.join(', ')}`);
   }
+}
+
+async function selectBridgeProvider(
+  ui: ReturnType<typeof createPrompter>,
+  agentEnv: Record<string, string>,
+  existingState: SetupState | null
+): Promise<string> {
+  const provider = normalizeBridgeProvider(
+    agentEnv.BRIDGE_CLI_PROVIDER ?? existingState?.bridge_provider ?? 'claude'
+  );
+  const options = ['Claude Code', 'Codex CLI'];
+  const selection = await ui.selectOption(
+    'Choose the coding CLI',
+    options,
+    provider === 'claude' ? 0 : 1
+  );
+  return selection === 0 ? 'claude' : 'codex';
+}
+
+function normalizeBridgeProvider(value: string): string {
+  return value.trim().toLowerCase() === 'codex' ? 'codex' : 'claude';
+}
+
+function formatBridgeProvider(provider: string): string {
+  return provider === 'codex' ? 'Codex CLI' : 'Claude Code';
+}
+
+function bridgeAuthCommand(provider: string): string[] {
+  return provider === 'codex'
+    ? ['codex', 'login', 'status']
+    : ['claude', 'auth', 'status'];
+}
+
+function installRepoLineSkill(
+  provider: string,
+  workdir: string
+): { method: 'existing' | 'symlink' | 'copy'; targetPath: string } {
+  if (!existsSync(REPOLINE_SKILL_SOURCE_PATH)) {
+    throw new BridgeCliError(`RepoLine skill source not found: ${REPOLINE_SKILL_SOURCE_PATH}`);
+  }
+
+  const targetRoot = join(workdir, ...projectSkillPath(provider));
+  const targetPath = join(targetRoot, REPOLINE_SKILL_NAME);
+  mkdirSync(targetRoot, { recursive: true });
+
+  if (existsSync(targetPath)) {
+    if (!isRepoLineSkillDirectory(targetPath, REPOLINE_SKILL_NAME)) {
+      throw new BridgeCliError(`existing path is not a RepoLine skill install: ${targetPath}`);
+    }
+    return { method: 'existing', targetPath };
+  }
+
+  try {
+    symlinkSync(REPOLINE_SKILL_SOURCE_DIR, targetPath, 'dir');
+    return { method: 'symlink', targetPath };
+  } catch {
+    cpSync(REPOLINE_SKILL_SOURCE_DIR, targetPath, { recursive: true });
+    return { method: 'copy', targetPath };
+  }
+}
+
+function projectSkillPath(provider: string): string[] {
+  return provider === 'codex' ? ['.agents', 'skills'] : ['.claude', 'skills'];
+}
+
+function isRepoLineSkillDirectory(pathValue: string, skillName: string): boolean {
+  const skillPath = join(pathValue, 'SKILL.md');
+  if (!existsSync(skillPath)) {
+    return false;
+  }
+
+  const contents = readFileSync(skillPath, 'utf8');
+  return new RegExp(`(^|\\n)name:\\s*${skillName}(\\n|$)`).test(contents);
 }
 
 function checkCommandAvailable(name: string): { name: string; ok: boolean; detail: string } {
@@ -724,6 +848,75 @@ function checkEnvKey(
     name: `${label} ${key}`,
     ok: value.length > 0,
     detail: value.length > 0 ? 'set' : 'missing',
+  };
+}
+
+function checkAnyEnvKey(
+  name: string,
+  env: Record<string, string>,
+  keys: string[],
+  fallbackValue?: string
+): { name: string; ok: boolean; detail: string } {
+  const matchedKey = keys.find((key) => (env[key] ?? '').length > 0);
+  if (matchedKey) {
+    return {
+      name,
+      ok: true,
+      detail: `${matchedKey} set`,
+    };
+  }
+
+  if ((fallbackValue ?? '').length > 0) {
+    return {
+      name,
+      ok: true,
+      detail: `defaulting to ${fallbackValue}`,
+    };
+  }
+
+  return {
+    name,
+    ok: false,
+    detail: `missing (${keys.join(' or ')})`,
+  };
+}
+
+function checkInstalledRepoLineSkill(
+  provider: string,
+  workdir: string,
+  skillName: string
+): { name: string; ok: boolean; detail: string } {
+  const targetPath = workdir
+    ? join(workdir, ...projectSkillPath(provider), skillName)
+    : join('<missing-workdir>', ...projectSkillPath(provider), skillName);
+
+  if (!workdir) {
+    return {
+      name: 'RepoLine skill install',
+      ok: false,
+      detail: 'missing workdir',
+    };
+  }
+
+  if (!isRepoLineSkillDirectory(targetPath, skillName)) {
+    return {
+      name: 'RepoLine skill install',
+      ok: false,
+      detail: `missing ${targetPath}`,
+    };
+  }
+
+  let detail = targetPath;
+  try {
+    if (lstatSync(targetPath).isSymbolicLink()) {
+      detail = `${targetPath} (symlink)`;
+    }
+  } catch {}
+
+  return {
+    name: 'RepoLine skill install',
+    ok: true,
+    detail,
   };
 }
 

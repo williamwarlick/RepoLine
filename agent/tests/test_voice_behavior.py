@@ -1,10 +1,12 @@
 import asyncio
+
 from voice_behavior import (
     CHANNELS,
     SAMPLE_RATE,
     build_initial_status_message,
     generate_thinking_cue,
 )
+
 
 def test_generate_thinking_cue_emits_audio_frames() -> None:
     async def collect():

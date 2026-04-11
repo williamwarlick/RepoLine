@@ -7,8 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-
-logger = logging.getLogger("claude-code-phone-bridge")
+logger = logging.getLogger("repoline-bridge")
 
 
 class BridgeTelemetry:
