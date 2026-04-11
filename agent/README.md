@@ -34,6 +34,6 @@ RepoLine now expects a hard cutover to the `BRIDGE_*` env shape. The selected re
 
 Access policy guide:
 
-- `readonly`: repo questions and inspection only
+- `readonly`: safest default for phone access; inspect only
 - `workspace-write`: project edits inside the provider's safer write mode
-- `owner`: highest-permission local mode for the machine owner
+- `owner`: highest-permission local mode; avoid for remote or telephony access

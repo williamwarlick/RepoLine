@@ -109,10 +109,14 @@ test('checkPhoneState validates dispatch coverage', () => {
   };
 
   expect(
-    checkPhoneState(state, () => ({
-      sipDispatchRuleId: 'rule_123',
-      inboundNumbers: ['+15551234567'],
-    }))
+    checkPhoneState(
+      state,
+      () => ({
+        sipDispatchRuleId: 'rule_123',
+        trunkIds: ['PN_123'],
+      }),
+      () => 'PN_123'
+    )
   ).toEqual({
     name: 'Phone number wiring',
     ok: true,
@@ -120,13 +124,17 @@ test('checkPhoneState validates dispatch coverage', () => {
   });
 
   expect(
-    checkPhoneState(state, () => ({
-      sipDispatchRuleId: 'rule_123',
-      inboundNumbers: ['+15557654321'],
-    }))
+    checkPhoneState(
+      state,
+      () => ({
+        sipDispatchRuleId: 'rule_123',
+        trunkIds: ['PN_999'],
+      }),
+      () => 'PN_123'
+    )
   ).toEqual({
     name: 'Phone number wiring',
     ok: false,
-    detail: 'dispatch rule is not scoped to the configured number',
+    detail: 'dispatch rule is not associated with the configured project number',
   });
 });

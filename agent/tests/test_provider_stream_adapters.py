@@ -130,6 +130,16 @@ async def test_codex_adapter_streams_deltas_and_item_artifacts() -> None:
                     }
                 ),
                 json.dumps({"type": "agent_message_delta", "delta": "I found it. "}),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "id": "assistant-1",
+                            "type": "agent_message",
+                            "text": "I found it. I am patching it now.",
+                        },
+                    }
+                ),
                 json.dumps({"type": "task_complete"}),
             ]
         )
@@ -152,7 +162,8 @@ async def test_codex_adapter_streams_deltas_and_item_artifacts() -> None:
         "Codex CLI accepted the turn.",
     ]
     assert [event.text for event in events if event.type == "speech_chunk"] == [
-        "I found it."
+        "I found it.",
+        "I am patching it now.",
     ]
     artifacts = [event.artifact for event in events if event.type == "artifact"]
     assert artifacts[0] is not None

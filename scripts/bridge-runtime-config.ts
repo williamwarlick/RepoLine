@@ -85,6 +85,13 @@ export function buildAgentEnvValues(options: {
     LIVEKIT_TTS_MODEL: options.existingAgentEnv.LIVEKIT_TTS_MODEL ?? 'cartesia/sonic-3',
     LIVEKIT_TTS_VOICE:
       options.existingAgentEnv.LIVEKIT_TTS_VOICE ?? '9626c31c-bec5-4cca-baa8-f8ba9e84c8bc',
+    LIVEKIT_RECORD_AUDIO: options.existingAgentEnv.LIVEKIT_RECORD_AUDIO ?? 'false',
+    LIVEKIT_RECORD_TRACES: options.existingAgentEnv.LIVEKIT_RECORD_TRACES ?? 'false',
+    LIVEKIT_RECORD_LOGS: options.existingAgentEnv.LIVEKIT_RECORD_LOGS ?? 'false',
+    LIVEKIT_RECORD_TRANSCRIPT:
+      options.existingAgentEnv.LIVEKIT_RECORD_TRANSCRIPT ?? 'false',
+    REPOLINE_ALLOW_OWNER: options.existingAgentEnv.REPOLINE_ALLOW_OWNER ?? '',
+    BRIDGE_PROMETHEUS_PORT: options.existingAgentEnv.BRIDGE_PROMETHEUS_PORT ?? '',
     BRIDGE_GREETING:
       options.existingAgentEnv.BRIDGE_GREETING ??
       'RepoLine is live. What do you want to work on?',
@@ -101,6 +108,8 @@ export function buildFrontendEnvValues(options: {
     LIVEKIT_API_SECRET: options.project.apiSecret,
     LIVEKIT_URL: options.project.url,
     AGENT_NAME: options.agentName,
+    NEXT_PUBLIC_APP_URL:
+      options.existingFrontendEnv.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000',
     NEXT_PUBLIC_APP_CONFIG_ENDPOINT:
       options.existingFrontendEnv.NEXT_PUBLIC_APP_CONFIG_ENDPOINT ?? '',
     SANDBOX_ID: options.existingFrontendEnv.SANDBOX_ID ?? '',

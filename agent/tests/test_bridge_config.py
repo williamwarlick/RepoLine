@@ -106,6 +106,23 @@ def test_bridge_config_load_supports_reasoning_effort_alias(tmp_path: Path) -> N
     assert config.thinking_level == "medium"
 
 
+def test_bridge_config_load_disables_livekit_recording_by_default(
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "claude", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(workdir),
+        repo_root=tmp_path,
+    )
+
+    assert config.livekit_record_audio is False
+    assert config.livekit_record_traces is False
+    assert config.livekit_record_logs is False
+    assert config.livekit_record_transcript is False
+
+
 def test_bridge_config_load_raises_for_invalid_prometheus_port(tmp_path: Path) -> None:
     workdir = tmp_path / "repo"
     _install_skill(workdir, "claude", "repoline-voice-session")

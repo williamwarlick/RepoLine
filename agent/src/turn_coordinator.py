@@ -69,7 +69,7 @@ class TurnCoordinatorConfig:
     status_followup_interval_seconds: float
 
     @classmethod
-    def from_bridge_config(cls, config: BridgeConfig) -> "TurnCoordinatorConfig":
+    def from_bridge_config(cls, config: BridgeConfig) -> TurnCoordinatorConfig:
         return cls(
             provider=config.provider,
             chunk_chars=config.chunk_chars,
@@ -142,9 +142,6 @@ class TurnCoordinator:
             if self._pending_status_task is not None and not self._pending_status_task.done():
                 self._pending_status_task.cancel()
                 self._pending_status_task = None
-            if self._active_speech is not None and not self._active_speech.done():
-                with contextlib.suppress(RuntimeError):
-                    self._active_speech.interrupt(force=True)
             if self._pending_status_speech is not None and not self._pending_status_speech.done():
                 with contextlib.suppress(RuntimeError):
                     self._pending_status_speech.interrupt(force=True)

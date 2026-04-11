@@ -20,6 +20,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   statSync,
   writeFileSync,
@@ -60,6 +61,7 @@ type LiveKitProject = {
 };
 
 type PhoneNumberRecord = {
+  id: string;
   e164Format: string;
   locality?: string;
   region?: string;
@@ -86,6 +88,8 @@ const FRONTEND_DEV_LOG_PATH = join(RUNTIME_LOG_DIR, 'frontend-dev.log');
 const FRONTEND_LIVE_LOG_PATH = join(RUNTIME_LOG_DIR, 'frontend-live.log');
 const LATEST_CALL_SUMMARY_PATH = join(AGENT_DIR, 'logs', 'latest-call.md');
 const CALL_HISTORY_DIR = join(AGENT_DIR, 'logs', 'calls');
+const FRONTEND_PORT = 3000;
+const DEFAULT_FRONTEND_HOST = '127.0.0.1';
 const PHONE_NUMBER_STATUS_ACTIVE = 'PHONE_NUMBER_STATUS_ACTIVE';
 const REPOLINE_SKILL_SOURCE_DIR = join(REPO_ROOT, 'skills', REPOLINE_SKILL_NAME);
 const REPOLINE_SKILL_SOURCE_PATH = join(REPOLINE_SKILL_SOURCE_DIR, 'SKILL.md');
@@ -109,7 +113,7 @@ class BridgeCliError extends Error {}
 
 const command = process.argv[2];
 
-if (!command || !['setup', 'dev', 'live', 'doctor'].includes(command)) {
+if (!command || !['setup', 'dev', 'live', 'agent', 'doctor'].includes(command)) {
   printHelp();
   process.exit(command ? 1 : 0);
 }
@@ -125,6 +129,9 @@ try {
     case 'live':
       await liveCommand();
       break;
+    case 'agent':
+      await agentCommand();
+      break;
     case 'doctor':
       doctorCommand();
       break;
@@ -136,7 +143,7 @@ try {
 }
 
 function printHelp(): void {
-  console.log(`Usage: bun run ${basename(__filename)} <setup|dev|live|doctor>`);
+  console.log(`Usage: bun run ${basename(__filename)} <setup|dev|live|agent|doctor>`);
 }
 
 async function setupCommand(): Promise<void> {
@@ -262,14 +269,68 @@ async function liveCommand(): Promise<void> {
   await runRuntimeCommand('live');
 }
 
+async function agentCommand(): Promise<void> {
+  if (!existsSync(AGENT_ENV_PATH)) {
+    throw new BridgeCliError('run `bun run setup` first.');
+  }
+
+  requireTools('uv');
+  const state = loadSetupState(STATE_PATH);
+  prepareCallSummaryArtifacts();
+
+  const processInfo = spawnProcess(['uv', 'run', 'python', 'src/agent.py', 'start'], {
+    cwd: AGENT_DIR,
+    label: 'RepoLine agent (agent-only)',
+    logPath: AGENT_LIVE_LOG_PATH,
+    envOverrides: { PYTHONUNBUFFERED: '1', VIRTUAL_ENV: null },
+  });
+  printAgentOnlyRuntimeInfo(state);
+
+  let settled = false;
+  const cleanupAndExit = async (code: number, childSignal: NodeJS.Signals) => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+
+    if (processInfo.child.exitCode === null) {
+      processInfo.child.kill(childSignal);
+      await Bun.sleep(500);
+    }
+    if (processInfo.child.exitCode === null) {
+      processInfo.child.kill('SIGKILL');
+    }
+    process.exit(code);
+  };
+
+  process.once('SIGINT', () => void cleanupAndExit(0, 'SIGINT'));
+  process.once('SIGTERM', () => void cleanupAndExit(0, 'SIGTERM'));
+
+  await new Promise<void>((resolve) => {
+    processInfo.child.once('exit', (code) => {
+      if (!settled && (code ?? 0) !== 0) {
+        console.error(
+          `${processInfo.label} exited with code ${code ?? 'unknown'}. See ${processInfo.logPath}`
+        );
+      }
+      void cleanupAndExit(code ?? 1, 'SIGTERM');
+      resolve();
+    });
+  });
+}
+
 async function runRuntimeCommand(mode: 'dev' | 'live'): Promise<void> {
   if (!existsSync(AGENT_ENV_PATH) || !existsSync(FRONTEND_ENV_PATH)) {
     throw new BridgeCliError('run `bun run setup` first.');
   }
 
   requireTools('uv', 'bun');
+  const agentEnv = loadEnvFile(AGENT_ENV_PATH);
   const state = loadSetupState(STATE_PATH);
+  const frontendHost = resolveFrontendHost();
+  assertSafeRuntimeConfig(agentEnv, frontendHost);
   prepareCallSummaryArtifacts();
+  await prepareFrontendRuntime();
 
   const processes = [
     spawnProcess(['uv', 'run', 'python', 'src/agent.py', mode === 'live' ? 'start' : 'dev'], {
@@ -278,13 +339,26 @@ async function runRuntimeCommand(mode: 'dev' | 'live'): Promise<void> {
       logPath: mode === 'live' ? AGENT_LIVE_LOG_PATH : AGENT_DEV_LOG_PATH,
       envOverrides: { PYTHONUNBUFFERED: '1', VIRTUAL_ENV: null },
     }),
-    spawnProcess(['bun', 'run', 'dev:network'], {
+    spawnProcess(
+      [
+        'bun',
+        '--bun',
+        'next',
+        'dev',
+        '--turbopack',
+        '--hostname',
+        frontendHost,
+        '--port',
+        String(FRONTEND_PORT),
+      ],
+      {
       cwd: FRONTEND_DIR,
       label: mode === 'live' ? 'RepoLine frontend (live)' : 'RepoLine frontend (dev)',
       logPath: mode === 'live' ? FRONTEND_LIVE_LOG_PATH : FRONTEND_DEV_LOG_PATH,
-    }),
+      }
+    ),
   ];
-  printRuntimeInfo(state, mode);
+  printRuntimeInfo(state, mode, frontendHost);
 
   let settled = false;
   const terminateAll = (signal: NodeJS.Signals) => {
@@ -334,7 +408,135 @@ async function runRuntimeCommand(mode: 'dev' | 'live'): Promise<void> {
   );
 }
 
-function printRuntimeInfo(state: SetupState | null, mode: 'dev' | 'live'): void {
+type ProcessRecord = {
+  pid: number;
+  command: string;
+};
+
+async function prepareFrontendRuntime(): Promise<void> {
+  const existingFrontendProcesses = listRepoFrontendProcesses();
+  if (existingFrontendProcesses.length > 0) {
+    const processLabel = existingFrontendProcesses.length === 1 ? 'process' : 'processes';
+    console.log(
+      `Stopping existing RepoLine frontend ${processLabel}: ${existingFrontendProcesses
+        .map((processInfo) => processInfo.pid)
+        .join(', ')}`
+    );
+    await stopProcesses(existingFrontendProcesses);
+  }
+
+  const portOwner = getListeningProcessOnPort(FRONTEND_PORT);
+  if (portOwner) {
+    throw new BridgeCliError(
+      `localhost:${FRONTEND_PORT} is already in use by ${portOwner.command}. Stop that process and rerun.`
+    );
+  }
+
+  rmSync(join(FRONTEND_DIR, '.next'), { recursive: true, force: true });
+}
+
+function listRepoFrontendProcesses(): ProcessRecord[] {
+  const result = spawnSync('ps', ['-axo', 'pid=,command='], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) {
+    return [];
+  }
+
+  return result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(.*)$/);
+      if (!match) {
+        return null;
+      }
+
+      return {
+        pid: Number(match[1]),
+        command: match[2],
+      } satisfies ProcessRecord;
+    })
+    .filter((record): record is ProcessRecord => {
+      if (!record) {
+        return false;
+      }
+
+      if (!record.command.includes(FRONTEND_DIR)) {
+        return false;
+      }
+
+      return record.command.includes('next dev') || record.command.includes('start-server.js');
+    });
+}
+
+function getListeningProcessOnPort(port: number): ProcessRecord | null {
+  const pidResult = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  if (pidResult.status !== 0) {
+    return null;
+  }
+
+  const pid = Number(pidResult.stdout.split('\n').find(Boolean)?.trim());
+  if (!Number.isFinite(pid)) {
+    return null;
+  }
+
+  const commandResult = spawnSync('ps', ['-p', String(pid), '-o', 'command='], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+
+  const command =
+    commandResult.status === 0
+      ? (commandResult.stdout.trim() || `pid ${pid}`)
+      : `pid ${pid}`;
+
+  return { pid, command };
+}
+
+async function stopProcesses(processes: ProcessRecord[]): Promise<void> {
+  const pids = Array.from(new Set(processes.map((processInfo) => processInfo.pid))).filter(Number.isFinite);
+  if (pids.length === 0) {
+    return;
+  }
+
+  spawnSync('kill', ['-TERM', ...pids.map(String)], { cwd: REPO_ROOT });
+  await waitForProcessesToExit(pids, 4_000);
+
+  const remainingPids = pids.filter((pid) => isProcessRunning(pid));
+  if (remainingPids.length === 0) {
+    return;
+  }
+
+  spawnSync('kill', ['-KILL', ...remainingPids.map(String)], { cwd: REPO_ROOT });
+  await waitForProcessesToExit(remainingPids, 2_000);
+}
+
+async function waitForProcessesToExit(pids: number[], timeoutMs: number): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (pids.every((pid) => !isProcessRunning(pid))) {
+      return;
+    }
+    await Bun.sleep(100);
+  }
+}
+
+function isProcessRunning(pid: number): boolean {
+  const result = spawnSync('kill', ['-0', String(pid)], { cwd: REPO_ROOT });
+  return result.status === 0;
+}
+
+function printRuntimeInfo(
+  state: SetupState | null,
+  mode: 'dev' | 'live',
+  frontendHost: string
+): void {
   const lines = [
     mode === 'live' ? 'RepoLine is running in live mode.' : 'RepoLine is running in dev mode.',
     '',
@@ -355,11 +557,35 @@ function printRuntimeInfo(state: SetupState | null, mode: 'dev' | 'live'): void 
     lines.push('Use this only when you want hot reloads during local development.');
   }
   lines.push('');
-  lines.push('Browser UI: http://localhost:3000');
+  lines.push(`Browser UI: http://${frontendHost}:${FRONTEND_PORT}`);
+  if (isRemoteFrontendHost(frontendHost)) {
+    lines.push('Remote browser access: enabled');
+  } else {
+    lines.push('Remote browser access: disabled by default');
+  }
   lines.push(`Latest call summary: ${LATEST_CALL_SUMMARY_PATH}`);
   lines.push(`Call history: ${CALL_HISTORY_DIR}`);
   lines.push(`Agent log: ${mode === 'live' ? AGENT_LIVE_LOG_PATH : AGENT_DEV_LOG_PATH}`);
   lines.push(`Frontend log: ${mode === 'live' ? FRONTEND_LIVE_LOG_PATH : FRONTEND_DEV_LOG_PATH}`);
+  lines.push('');
+  lines.push('Press Ctrl+C to stop.');
+
+  console.log(lines.join('\n'));
+}
+
+function printAgentOnlyRuntimeInfo(state: SetupState | null): void {
+  const lines = ['RepoLine agent is running in agent-only mode.', ''];
+
+  if (state?.phone) {
+    lines.push(`Call this number: ${state.phone.number}`);
+    lines.push(`Enter PIN ${state.phone.pin}, then press #`);
+    lines.push('');
+  }
+
+  lines.push('Use this when the frontend is hosted elsewhere, such as a protected Vercel preview.');
+  lines.push(`Latest call summary: ${LATEST_CALL_SUMMARY_PATH}`);
+  lines.push(`Call history: ${CALL_HISTORY_DIR}`);
+  lines.push(`Agent log: ${AGENT_LIVE_LOG_PATH}`);
   lines.push('');
   lines.push('Press Ctrl+C to stop.');
 
@@ -467,8 +693,12 @@ function doctorCommand(): void {
     );
     if (state.phone) {
       checks.push(
-        checkPhoneState(state, (projectName, dispatchRuleName) =>
-          selectDispatchRule(projectName, dispatchRuleName)
+        checkPhoneState(
+          state,
+          (projectName, dispatchRuleName) =>
+            selectDispatchRule(projectName, dispatchRuleName),
+          (projectName, phoneNumber) =>
+            listPhoneNumbers(projectName).find((item) => item.e164Format === phoneNumber)?.id ?? null
         )
       );
     }
@@ -648,6 +878,7 @@ async function configurePhone(
   const phoneNumber = await choosePhoneNumber(ui, projectNumbers, existingPhone?.number ?? null);
   const pin = await promptPin(ui, existingPhone?.pin ?? null);
   const dispatchRuleName = slugify(`${agentName}-inbound`);
+  const existingDispatch = selectDispatchRule(project.name, dispatchRuleName);
 
   const dispatchPayload = {
     name: dispatchRuleName,
@@ -668,10 +899,12 @@ async function configurePhone(
         },
       ],
     },
-    inboundNumbers: [phoneNumber],
+    trunkIds: [phoneNumber.id],
+    ...(existingDispatch?.inboundNumbers?.length
+      ? { inboundNumbers: existingDispatch.inboundNumbers }
+      : {}),
   };
 
-  const existingDispatch = selectDispatchRule(project.name, dispatchRuleName);
   if (existingDispatch) {
     runChecked(
       [
@@ -705,7 +938,7 @@ async function configurePhone(
   }
 
   return {
-    number: phoneNumber,
+    number: phoneNumber.e164Format,
     pin,
     dispatchRuleName,
     dispatchRuleId: dispatch.sipDispatchRuleId,
@@ -716,7 +949,7 @@ async function choosePhoneNumber(
   ui: ReturnType<typeof createPrompter>,
   numbers: PhoneNumberRecord[],
   existingNumber: string | null
-): Promise<string> {
+): Promise<PhoneNumberRecord> {
   if (numbers.length === 0) {
     throw new BridgeCliError(
       'no active phone number was found for this LiveKit project. Add one in LiveKit first, then rerun setup.'
@@ -724,9 +957,8 @@ async function choosePhoneNumber(
   }
 
   if (numbers.length === 1) {
-    const phoneNumber = numbers[0].e164Format;
-    note(`Using the only active project number: ${phoneNumber}`, 'Phone number');
-    return phoneNumber;
+    note(`Using the only active project number: ${numbers[0].e164Format}`, 'Phone number');
+    return numbers[0];
   }
 
   let defaultIndex = 0;
@@ -745,7 +977,7 @@ async function choosePhoneNumber(
     })),
     defaultIndex
   );
-  return numbers[selection].e164Format;
+  return numbers[selection];
 }
 
 function listPhoneNumbers(projectName: string): PhoneNumberRecord[] {
@@ -754,7 +986,10 @@ function listPhoneNumbers(projectName: string): PhoneNumberRecord[] {
   }) as { items?: PhoneNumberRecord[] };
   const items = payload.items ?? [];
   return items.filter(
-    (item) => item.status === PHONE_NUMBER_STATUS_ACTIVE && typeof item.e164Format === 'string'
+    (item) =>
+      item.status === PHONE_NUMBER_STATUS_ACTIVE &&
+      typeof item.id === 'string' &&
+      typeof item.e164Format === 'string'
   );
 }
 
@@ -775,6 +1010,37 @@ function requireTools(...tools: string[]): void {
   const missing = tools.filter((tool) => !Bun.which(tool));
   if (missing.length > 0) {
     throw new BridgeCliError(`missing required tools: ${missing.join(', ')}`);
+  }
+}
+
+function resolveFrontendHost(): string {
+  const value = process.env.REPOLINE_FRONTEND_HOST?.trim();
+  return value || DEFAULT_FRONTEND_HOST;
+}
+
+function isRemoteFrontendHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return normalized !== '127.0.0.1' && normalized !== 'localhost' && normalized !== '::1';
+}
+
+function assertSafeRuntimeConfig(agentEnv: Record<string, string>, frontendHost: string): void {
+  const accessPolicy = (agentEnv.BRIDGE_ACCESS_POLICY ?? 'readonly').trim().toLowerCase();
+  const allowOwner =
+    (agentEnv.REPOLINE_ALLOW_OWNER ?? process.env.REPOLINE_ALLOW_OWNER ?? '').trim() === '1';
+
+  if (accessPolicy === 'owner' && !allowOwner) {
+    throw new BridgeCliError(
+      'BRIDGE_ACCESS_POLICY=owner is blocked by default. Change it to readonly or workspace-write, or set REPOLINE_ALLOW_OWNER=1 for an explicit override.'
+    );
+  }
+
+  if (
+    isRemoteFrontendHost(frontendHost) &&
+    process.env.REPOLINE_ALLOW_REMOTE_BROWSER !== '1'
+  ) {
+    throw new BridgeCliError(
+      `remote browser binding to ${frontendHost} is blocked by default. Use REPOLINE_FRONTEND_HOST=127.0.0.1, or set REPOLINE_ALLOW_REMOTE_BROWSER=1 for an explicit override.`
+    );
   }
 }
 

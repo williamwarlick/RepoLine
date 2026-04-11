@@ -123,10 +123,10 @@ class BridgeConfig:
             telemetry_jsonl_path=env.get("BRIDGE_TELEMETRY_JSONL")
             or str(agent_dir / "logs" / "bridge-telemetry.jsonl"),
             livekit_record_audio=_env_bool(env, "LIVEKIT_RECORD_AUDIO", False),
-            livekit_record_traces=_env_bool(env, "LIVEKIT_RECORD_TRACES", True),
-            livekit_record_logs=_env_bool(env, "LIVEKIT_RECORD_LOGS", True),
+            livekit_record_traces=_env_bool(env, "LIVEKIT_RECORD_TRACES", False),
+            livekit_record_logs=_env_bool(env, "LIVEKIT_RECORD_LOGS", False),
             livekit_record_transcript=_env_bool(
-                env, "LIVEKIT_RECORD_TRANSCRIPT", True
+                env, "LIVEKIT_RECORD_TRANSCRIPT", False
             ),
             prometheus_port=_env_int(env, "BRIDGE_PROMETHEUS_PORT"),
             stt_model=env.get("LIVEKIT_STT_MODEL", "deepgram/nova-3"),

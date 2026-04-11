@@ -13,6 +13,7 @@ export type DispatchRuleRecord = {
   sipDispatchRuleId: string;
   name?: string;
   inboundNumbers?: string[];
+  trunkIds?: string[];
 };
 
 export function projectSkillPath(provider: BridgeProvider): string[] {
@@ -148,7 +149,11 @@ export function checkPhoneState(
   resolveDispatchRule: (
     projectName: string,
     dispatchRuleName: string
-  ) => DispatchRuleRecord | null
+  ) => DispatchRuleRecord | null,
+  resolvePhoneNumberId: (
+    projectName: string,
+    phoneNumber: string
+  ) => string | null
 ): DoctorCheck {
   if (!state.phone) {
     return { name: 'Phone number wiring', ok: true, detail: 'not configured' };
@@ -162,11 +167,19 @@ export function checkPhoneState(
     if (!dispatch) {
       return { name: 'Phone number wiring', ok: false, detail: 'dispatch rule not found' };
     }
-    if (!(dispatch.inboundNumbers ?? []).includes(state.phone.number)) {
+    const phoneNumberId = resolvePhoneNumberId(
+      state.livekit_project_name,
+      state.phone.number
+    );
+    const matchesLegacyNumberScope = (dispatch.inboundNumbers ?? []).includes(state.phone.number);
+    const matchesAssignedTrunk =
+      phoneNumberId != null && (dispatch.trunkIds ?? []).includes(phoneNumberId);
+
+    if (!matchesLegacyNumberScope && !matchesAssignedTrunk) {
       return {
         name: 'Phone number wiring',
         ok: false,
-        detail: 'dispatch rule is not scoped to the configured number',
+        detail: 'dispatch rule is not associated with the configured project number',
       };
     }
     return {

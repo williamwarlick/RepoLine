@@ -11,6 +11,7 @@ from .common import (
     _embed_prompt_instructions,
     _extract_codex_delta_text,
     _extract_codex_item_artifacts,
+    _extract_incremental_text,
     _extract_text_candidate,
     _string_value,
     iter_final_text_artifacts,
@@ -145,9 +146,10 @@ class CodexProviderStreamAdapter:
 
                     if item_type == "agent_message":
                         text = _extract_text_candidate(item)
-                        if text:
-                            assistant_text += text
-                            for chunk in chunker.feed(text):
+                        delta_text = _extract_incremental_text(text, assistant_text)
+                        if delta_text:
+                            assistant_text += delta_text
+                            for chunk in chunker.feed(delta_text):
                                 yield TextStreamEvent(
                                     type="speech_chunk",
                                     text=chunk,
