@@ -1,8 +1,4 @@
 <p align="center">
-  <img src="./docs/assets/repoline-readme-banner.png" alt="RepoLine" width="100%" />
-</p>
-
-<p align="center">
   <strong>Call your codebase.</strong><br />
   Talk to your coding CLI from your phone or browser over LiveKit.
 </p>
@@ -23,8 +19,9 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#security-model">Security model</a> ·
-  <a href="./docs/ARCHITECTURE.md">Architecture</a> ·
-  <a href="./docs/BRANDING.md">Branding</a>
+  <a href="./docs/README.md">Docs</a> ·
+  <a href="./docs/PHONE.md">Phone access</a> ·
+  <a href="./docs/COSTS.md">Costs and limits</a>
 </p>
 
 ## Why RepoLine
@@ -37,7 +34,7 @@ What it does well:
 
 - routes a LiveKit browser session or phone call into a local coding CLI workdir
 - speaks streamed CLI output as soon as the provider emits usable text
-- keeps setup short with `bun run setup`, `bun run live`, `bun run dev`, and `bun run doctor`
+- keeps setup short with `bun run setup`, `bun run live`, `bun run agent`, `bun run dev`, and `bun run doctor`
 - auto-discovers linked LiveKit projects and existing project phone numbers
 - wires a 4-digit caller PIN and number-scoped SIP dispatch rule during setup
 - supports `claude`, `codex`, and `cursor` through a shared provider adapter layer
@@ -61,6 +58,8 @@ bun run doctor
 ```
 
 Use `bun run live` for real calls while other agents may be editing the repo. It runs the voice agent without the LiveKit dev watcher, which avoids mid-call job reloads.
+
+Use `bun run agent` when the browser UI is hosted somewhere else, such as a protected Vercel preview deployment. It starts only the LiveKit agent and skips the local Next.js server.
 
 Use `bun run dev` only when you explicitly want hot reload behavior while iterating on the bridge itself.
 
@@ -143,17 +142,30 @@ npx skills add . --list
 
 ## From Your Phone
 
-`bun run live` starts the Python LiveKit agent in non-watch mode and the Bun-run frontend. The frontend binds to `0.0.0.0` so you can open it from your phone on the same network.
+`bun run live` starts the Python LiveKit agent in non-watch mode and the Bun-run frontend. The frontend binds to `127.0.0.1` by default so the browser path stays local unless you explicitly opt into LAN exposure.
 
 `bun run dev` starts the same stack, but keeps the LiveKit agent in watch mode and may reload active calls if files change.
 
-Open the frontend from your laptop first. Then open the same app from your phone using your laptop's LAN IP, for example:
+If you explicitly want browser access from another device on your LAN, opt in for that run:
 
-```text
-http://192.168.1.20:3000
+```bash
+REPOLINE_FRONTEND_HOST=0.0.0.0 REPOLINE_ALLOW_REMOTE_BROWSER=1 bun run live
 ```
 
+Then open the app from your phone using your laptop's LAN IP, for example `http://192.168.1.20:3000`.
+
 If you configured telephony in setup, RepoLine prints the number to call and the caller PIN in the setup summary.
+
+## Hosted Frontend On Vercel
+
+Phase 1 supports a frontend-only Vercel deployment.
+
+- deploy `frontend/` as its own Vercel project
+- protect the preview deployment with Vercel Authentication so anonymous visitors cannot load it
+- set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `AGENT_NAME`, and optionally `NEXT_PUBLIC_APP_URL`
+- run `bun run agent` anywhere that can still reach your repo, CLI, and LiveKit project
+
+This keeps the current local-first execution model intact. Vercel only hosts the browser entry point; the LiveKit worker still needs to run elsewhere with the same LiveKit credentials and agent name.
 
 ## Security Model
 
@@ -163,10 +175,12 @@ RepoLine is intentionally local-first.
 - LiveKit handles voice transport and phone ingress
 - the bridge now defaults new setups to `BRIDGE_ACCESS_POLICY=readonly`
 - use `workspace-write` for sandboxed project edits, or `owner` only on a machine you fully control
-- the frontend token route is development-only and intentionally throws outside development
+- runtime blocks `BRIDGE_ACCESS_POLICY=owner` unless you explicitly set `REPOLINE_ALLOW_OWNER=1`
+- runtime keeps the browser frontend on `127.0.0.1` unless you explicitly opt into `REPOLINE_FRONTEND_HOST=0.0.0.0` with `REPOLINE_ALLOW_REMOTE_BROWSER=1`
+- the frontend token route can run in production, but the deployment should stay behind Vercel Authentication or another outer auth layer
 - the local worker still has to be running for inbound phone calls to reach the CLI
 
-The development-only token route lives in [`frontend/app/api/token/route.ts`](./frontend/app/api/token/route.ts).
+The production-safe token route lives in [`frontend/app/api/token/route.ts`](./frontend/app/api/token/route.ts).
 
 For production-like previews or a deployed frontend, set `NEXT_PUBLIC_APP_URL` so Open Graph and social metadata resolve to the correct host instead of localhost.
 
@@ -179,10 +193,10 @@ For production-like previews or a deployed frontend, set `NEXT_PUBLIC_APP_URL` s
 
 Useful docs:
 
-- [Architecture](./docs/ARCHITECTURE.md)
-- [Phone number plan](./docs/PHONE-NUMBER-PLAN.md)
-- [Streaming bridge](./docs/STREAMING-BRIDGE.md)
-- [Branding](./docs/BRANDING.md)
+- [Documentation index](./docs/README.md)
+- [How it works](./docs/HOW-IT-WORKS.md)
+- [Phone access](./docs/PHONE.md)
+- [Costs and limits](./docs/COSTS.md)
 
 ## Debugging The Stream
 
@@ -205,15 +219,14 @@ RepoLine emits telemetry in three places:
 - worker logs with LiveKit metrics and state transitions
 - LiveKit Cloud session recording for traces, logs, and transcripts
 
-Current defaults in `agent/.env.local` are:
+Safe recording defaults are:
 
-- `LIVEKIT_RECORD_TRACES=true`
-- `LIVEKIT_RECORD_LOGS=true`
-- `LIVEKIT_RECORD_TRANSCRIPT=true`
-- `LIVEKIT_RECORD_AUDIO=true`
-- `BRIDGE_PROMETHEUS_PORT=9465`
+- `LIVEKIT_RECORD_TRACES=false`
+- `LIVEKIT_RECORD_LOGS=false`
+- `LIVEKIT_RECORD_TRANSCRIPT=false`
+- `LIVEKIT_RECORD_AUDIO=false`
 
-When the agent is running locally, Prometheus metrics are exposed at:
+Prometheus metrics are opt-in through `BRIDGE_PROMETHEUS_PORT`. When that port is set, metrics are exposed at:
 
 ```text
 http://127.0.0.1:9465/metrics
@@ -226,7 +239,7 @@ http://127.0.0.1:9465/metrics
 - Cursor Agent support uses `cursor-agent -p --output-format stream-json`. It can stream full assistant messages and final results, but in local docs this is still coarser than Claude's token-delta path.
 - The backend still launches the coding CLI per user turn. Continuity stays with the provider session ID or thread ID, not through local transcript replay.
 - The browser path is the most polished entry point today.
-- Internet-facing deployment still needs a real auth layer for the frontend token route.
+- A hosted frontend still requires a running LiveKit agent elsewhere in phase 1.
 
 ## License
 
