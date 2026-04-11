@@ -111,6 +111,21 @@ const REPOLINE_SKILL_NAME = 'repoline-voice-session';
 const REPOLINE_SKILL_SOURCE_DIR = join(REPO_ROOT, 'skills', REPOLINE_SKILL_NAME);
 const REPOLINE_SKILL_SOURCE_PATH = join(REPOLINE_SKILL_SOURCE_DIR, 'SKILL.md');
 const REPOLINE_CURSOR_RULE_SOURCE_PATH = join(REPOLINE_SKILL_SOURCE_DIR, 'cursor-rule.mdc');
+const REPOLINE_TTS_PRONUNCIATION_SKILL_NAME = 'repoline-tts-pronunciation';
+const REPOLINE_TTS_PRONUNCIATION_SKILL_SOURCE_DIR = join(
+  REPO_ROOT,
+  'skills',
+  REPOLINE_TTS_PRONUNCIATION_SKILL_NAME
+);
+const REPOLINE_TTS_PRONUNCIATION_SKILL_SOURCE_PATH = join(
+  REPOLINE_TTS_PRONUNCIATION_SKILL_SOURCE_DIR,
+  'SKILL.md'
+);
+const REPOLINE_TTS_PRONUNCIATION_NOTES_SOURCE_PATH = join(
+  REPOLINE_TTS_PRONUNCIATION_SKILL_SOURCE_DIR,
+  'references',
+  'PROVIDER_NOTES.md'
+);
 
 class BridgeCliError extends Error {}
 
@@ -149,7 +164,7 @@ function printHelp(): void {
 async function setupCommand(): Promise<void> {
   intro('RepoLine');
   note(
-    'This will write local env files, install the RepoLine voice skill into your selected repo, install dependencies, and optionally wire a project phone number.',
+    'This will write local env files, install the RepoLine voice and pronunciation skills into your selected repo, install dependencies, and optionally wire a project phone number.',
     'Setup'
   );
 
@@ -174,7 +189,15 @@ async function setupCommand(): Promise<void> {
       'clawdbot-agent';
     const agentName = await ui.promptText('LiveKit agent name', agentNameDefault);
     const workdir = await selectWorkdir(ui, agentEnv.BRIDGE_WORKDIR ?? existingState?.workdir ?? null);
+    const ttsModel = agentEnv.LIVEKIT_TTS_MODEL ?? 'cartesia/sonic-3';
+    const ttsVoice = agentEnv.LIVEKIT_TTS_VOICE ?? '9626c31c-bec5-4cca-baa8-f8ba9e84c8bc';
     const skillInstall = installRepoLineSkill(bridgeProvider, workdir);
+    const pronunciationSkillInstall = installRepoLineTtsPronunciationSkill(
+      bridgeProvider,
+      workdir,
+      ttsModel,
+      ttsVoice
+    );
 
     let phoneConfig: PhoneConfig | null = null;
     const shouldSetupPhone = await ui.promptBool(
@@ -233,6 +256,7 @@ async function setupCommand(): Promise<void> {
       `Coding CLI: ${formatBridgeProvider(bridgeProvider)}`,
       `Workdir: ${workdir}`,
       `RepoLine instructions: ${skillInstall.targetPath} (${skillInstall.method})`,
+      `TTS pronunciation notes: ${pronunciationSkillInstall.targetPath} (${pronunciationSkillInstall.method})`,
       `Agent name: ${agentName}`,
     ];
     if (phoneConfig) {
@@ -380,6 +404,18 @@ function doctorCommand(): void {
   checks.push(checkFileExists('Frontend Bun lockfile', join(FRONTEND_DIR, 'bun.lock')));
   checks.push(checkFileExists('RepoLine voice skill source', REPOLINE_SKILL_SOURCE_PATH));
   checks.push(checkFileExists('RepoLine Cursor rule source', REPOLINE_CURSOR_RULE_SOURCE_PATH));
+  checks.push(
+    checkFileExists(
+      'RepoLine TTS pronunciation skill source',
+      REPOLINE_TTS_PRONUNCIATION_SKILL_SOURCE_PATH
+    )
+  );
+  checks.push(
+    checkFileExists(
+      'RepoLine TTS pronunciation notes source',
+      REPOLINE_TTS_PRONUNCIATION_NOTES_SOURCE_PATH
+    )
+  );
 
   const agentEnv = loadEnvFile(AGENT_ENV_PATH);
   const frontendEnv = loadEnvFile(FRONTEND_ENV_PATH);
@@ -388,6 +424,8 @@ function doctorCommand(): void {
   const bridgeProvider = bridgeProviderRaw ? normalizeBridgeProvider(bridgeProviderRaw) : null;
   const workdir = agentEnv.BRIDGE_WORKDIR ?? '';
   const repolineSkillName = agentEnv.REPOLINE_SKILL_NAME ?? '';
+  const repolineTtsPronunciationSkillName =
+    agentEnv.REPOLINE_TTS_PRONUNCIATION_SKILL_NAME ?? '';
 
   const requiredTools = bridgeProvider
     ? [providerExecutable(bridgeProvider), 'lk', 'uv', 'bun']
@@ -402,6 +440,7 @@ function doctorCommand(): void {
   checks.push(checkEnvKey('Agent env', agentEnv, 'BRIDGE_CLI_PROVIDER'));
   checks.push(checkEnvKey('Agent env', agentEnv, 'BRIDGE_WORKDIR'));
   checks.push(checkEnvKey('Agent env', agentEnv, 'REPOLINE_SKILL_NAME'));
+  checks.push(checkEnvKey('Agent env', agentEnv, 'REPOLINE_TTS_PRONUNCIATION_SKILL_NAME'));
 
   for (const key of ['LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET', 'AGENT_NAME']) {
     checks.push(checkEnvKey('Frontend env', frontendEnv, key));
@@ -421,7 +460,22 @@ function doctorCommand(): void {
     })
   );
   checks.push(runStatusCheck('Frontend dependencies', ['bun', 'install', '--frozen-lockfile'], FRONTEND_DIR));
-  checks.push(checkInstalledRepoLineSkill(bridgeProvider, workdir, repolineSkillName));
+  checks.push(
+    checkInstalledRepoLineSkill(
+      bridgeProvider,
+      workdir,
+      repolineSkillName,
+      'RepoLine instructions install'
+    )
+  );
+  checks.push(
+    checkInstalledRepoLineSkill(
+      bridgeProvider,
+      workdir,
+      repolineTtsPronunciationSkillName,
+      'RepoLine TTS pronunciation install'
+    )
+  );
 
   if (state) {
     checks.push(
@@ -756,6 +810,9 @@ function writeEnvFiles(options: {
     BRIDGE_ACCESS_POLICY: options.existingAgentEnv.BRIDGE_ACCESS_POLICY ?? 'readonly',
     REPOLINE_SKILL_NAME:
       options.existingAgentEnv.REPOLINE_SKILL_NAME ?? REPOLINE_SKILL_NAME,
+    REPOLINE_TTS_PRONUNCIATION_SKILL_NAME:
+      options.existingAgentEnv.REPOLINE_TTS_PRONUNCIATION_SKILL_NAME ??
+      REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
     BRIDGE_SYSTEM_PROMPT: options.existingAgentEnv.BRIDGE_SYSTEM_PROMPT ?? '',
     BRIDGE_CHUNK_CHARS: options.existingAgentEnv.BRIDGE_CHUNK_CHARS ?? '140',
     FINAL_TRANSCRIPT_DEBOUNCE_SECONDS:
@@ -1096,6 +1153,55 @@ function installRepoLineSkill(
   }
 }
 
+function installRepoLineTtsPronunciationSkill(
+  provider: BridgeProvider,
+  workdir: string,
+  ttsModel: string,
+  ttsVoice: string
+): { method: 'existing' | 'symlink' | 'copy' | 'generated'; targetPath: string } {
+  if (!existsSync(REPOLINE_TTS_PRONUNCIATION_SKILL_SOURCE_PATH)) {
+    throw new BridgeCliError(
+      `RepoLine TTS pronunciation skill source not found: ${REPOLINE_TTS_PRONUNCIATION_SKILL_SOURCE_PATH}`
+    );
+  }
+
+  if (provider === 'cursor') {
+    const targetRoot = join(workdir, ...projectSkillPath(provider));
+    const targetPath = join(targetRoot, `${REPOLINE_TTS_PRONUNCIATION_SKILL_NAME}.mdc`);
+    mkdirSync(targetRoot, { recursive: true });
+
+    if (existsSync(targetPath)) {
+      if (!isRepoLineCursorRule(targetPath, REPOLINE_TTS_PRONUNCIATION_SKILL_NAME)) {
+        throw new BridgeCliError(
+          `existing path is not a RepoLine TTS pronunciation rule install: ${targetPath}`
+        );
+      }
+      return { method: 'existing', targetPath };
+    }
+
+    writeFileSync(targetPath, buildRepoLineTtsPronunciationCursorRule(ttsModel, ttsVoice));
+    return { method: 'generated', targetPath };
+  }
+
+  const targetRoot = join(workdir, ...projectSkillPath(provider));
+  const targetPath = join(targetRoot, REPOLINE_TTS_PRONUNCIATION_SKILL_NAME);
+  mkdirSync(targetRoot, { recursive: true });
+
+  if (existsSync(targetPath)) {
+    if (!isRepoLineSkillDirectory(targetPath, REPOLINE_TTS_PRONUNCIATION_SKILL_NAME)) {
+      throw new BridgeCliError(
+        `existing path is not a RepoLine TTS pronunciation skill install: ${targetPath}`
+      );
+    }
+    ensureRepoLineTtsPronunciationNotes(targetPath, ttsModel, ttsVoice, false);
+    return { method: 'existing', targetPath };
+  }
+
+  cpSync(REPOLINE_TTS_PRONUNCIATION_SKILL_SOURCE_DIR, targetPath, { recursive: true });
+  ensureRepoLineTtsPronunciationNotes(targetPath, ttsModel, ttsVoice, true);
+  return { method: 'generated', targetPath };
+}
+
 function projectSkillPath(provider: BridgeProvider): string[] {
   if (provider === 'codex') {
     return ['.agents', 'skills'];
@@ -1122,7 +1228,11 @@ function isRepoLineCursorRule(pathValue: string, skillName: string): boolean {
   }
 
   const contents = readFileSync(pathValue, 'utf8');
-  return pathValue.endsWith(`${skillName}.mdc`) && contents.includes('# RepoLine Voice Session');
+  return (
+    pathValue.endsWith(`${skillName}.mdc`) &&
+    contents.includes('description: RepoLine') &&
+    contents.includes('# RepoLine')
+  );
 }
 
 function checkCommandAvailable(name: string): { name: string; ok: boolean; detail: string } {
@@ -1158,11 +1268,20 @@ function checkEnvKey(
 function checkInstalledRepoLineSkill(
   provider: BridgeProvider | null,
   workdir: string,
-  skillName: string
+  skillName: string,
+  label = 'RepoLine instructions install'
 ): { name: string; ok: boolean; detail: string } {
+  if (!skillName) {
+    return {
+      name: label,
+      ok: false,
+      detail: 'missing skill name',
+    };
+  }
+
   if (!provider) {
     return {
-      name: 'RepoLine instructions install',
+      name: label,
       ok: false,
       detail: 'missing bridge provider',
     };
@@ -1178,7 +1297,7 @@ function checkInstalledRepoLineSkill(
 
   if (!workdir) {
     return {
-      name: 'RepoLine instructions install',
+      name: label,
       ok: false,
       detail: 'missing workdir',
     };
@@ -1190,7 +1309,7 @@ function checkInstalledRepoLineSkill(
 
   if (!installed) {
     return {
-      name: 'RepoLine instructions install',
+      name: label,
       ok: false,
       detail: `missing ${targetPath}`,
     };
@@ -1204,10 +1323,77 @@ function checkInstalledRepoLineSkill(
   } catch {}
 
   return {
-    name: 'RepoLine instructions install',
+    name: label,
     ok: true,
     detail,
   };
+}
+
+function ensureRepoLineTtsPronunciationNotes(
+  skillPath: string,
+  ttsModel: string,
+  ttsVoice: string,
+  overwrite: boolean
+): void {
+  const notesPath = join(skillPath, 'references', 'PROVIDER_NOTES.md');
+  if (!overwrite && existsSync(notesPath)) {
+    return;
+  }
+
+  writeFileSync(notesPath, buildRepoLineTtsPronunciationNotes(ttsModel, ttsVoice));
+}
+
+function buildRepoLineTtsPronunciationNotes(ttsModel: string, ttsVoice: string): string {
+  return [
+    '# Provider Notes',
+    '',
+    '## Current Provider',
+    '',
+    `- TTS model: ${ttsModel}`,
+    `- TTS voice: ${ttsVoice}`,
+    '',
+    '## How To Update',
+    '',
+    '- Keep rules specific to this TTS model and voice.',
+    '- Add short lines that say what to say or what to avoid.',
+    '',
+    '## Active Pronunciation Rules',
+    '',
+    '- Say `README.md` as "read me."',
+    '- Do not spell out `README.md` letter by letter.',
+    '',
+  ].join('\n');
+}
+
+function buildRepoLineTtsPronunciationCursorRule(ttsModel: string, ttsVoice: string): string {
+  return [
+    '---',
+    'description: RepoLine TTS pronunciation behavior',
+    'alwaysApply: true',
+    '---',
+    '',
+    '# RepoLine TTS Pronunciation',
+    '',
+    'Apply this rule in RepoLine voice sessions when the user corrects how something should sound.',
+    '',
+    '## Current Provider',
+    '',
+    `- TTS model: ${ttsModel}`,
+    `- TTS voice: ${ttsVoice}`,
+    '',
+    '## What To Do',
+    '',
+    '- Treat "you said that weird" as actionable speech feedback.',
+    '- Fix the wording immediately in the current reply when possible.',
+    '- Update the pronunciation rules in this file so the correction sticks for this provider.',
+    '- Keep every rule short, explicit, and easy to apply while speaking.',
+    '',
+    '## Active Pronunciation Rules',
+    '',
+    '- Say `README.md` as "read me."',
+    '- Do not spell out `README.md` letter by letter.',
+    '',
+  ].join('\n');
 }
 
 function runStatusCheck(

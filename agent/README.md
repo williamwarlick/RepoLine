@@ -22,6 +22,7 @@ Use `console` instead of `dev` if you want to test the agent locally without the
 - `BRIDGE_CLI_PROVIDER`
 - `BRIDGE_WORKDIR`
 - `REPOLINE_SKILL_NAME`
+- `REPOLINE_TTS_PRONUNCIATION_SKILL_NAME`
 - `BRIDGE_MODEL`
 - `BRIDGE_THINKING_LEVEL`
 - `BRIDGE_ACCESS_POLICY` (`readonly`, `workspace-write`, or `owner`)

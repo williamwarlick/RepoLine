@@ -80,3 +80,70 @@ alwaysApply: true
     assert resolved.mode == "installed"
     assert resolved.source_path == str(installed_rule)
     assert "RepoLine voice rule" in resolved.prompt
+
+
+def test_resolve_repoline_skill_prompt_mentions_tts_pronunciation_skill_when_installed(
+    tmp_path,
+) -> None:
+    workdir = tmp_path / "repo"
+    installed_skill = (
+        workdir / ".claude" / "skills" / "repoline-voice-session" / "SKILL.md"
+    )
+    installed_tts_skill = (
+        workdir / ".claude" / "skills" / "repoline-tts-pronunciation" / "SKILL.md"
+    )
+    installed_skill.parent.mkdir(parents=True)
+    installed_tts_skill.parent.mkdir(parents=True)
+    installed_skill.write_text(
+        """---
+name: repoline-voice-session
+description: Example
+---
+""",
+        encoding="utf-8",
+    )
+    installed_tts_skill.write_text(
+        """---
+name: repoline-tts-pronunciation
+description: Example
+---
+""",
+        encoding="utf-8",
+    )
+
+    resolved = resolve_repoline_skill_prompt(
+        provider="claude",
+        working_directory=workdir,
+        explicit_system_prompt=None,
+        tts_pronunciation_skill_name="repoline-tts-pronunciation",
+    )
+
+    assert "repoline-tts-pronunciation" in resolved.prompt
+    assert "provider-specific notes" in resolved.prompt
+
+
+def test_resolve_repoline_skill_prompt_omits_tts_pronunciation_hint_when_missing(
+    tmp_path,
+) -> None:
+    workdir = tmp_path / "repo"
+    installed_skill = (
+        workdir / ".claude" / "skills" / "repoline-voice-session" / "SKILL.md"
+    )
+    installed_skill.parent.mkdir(parents=True)
+    installed_skill.write_text(
+        """---
+name: repoline-voice-session
+description: Example
+---
+""",
+        encoding="utf-8",
+    )
+
+    resolved = resolve_repoline_skill_prompt(
+        provider="claude",
+        working_directory=workdir,
+        explicit_system_prompt=None,
+        tts_pronunciation_skill_name="repoline-tts-pronunciation",
+    )
+
+    assert "provider-specific notes" not in resolved.prompt

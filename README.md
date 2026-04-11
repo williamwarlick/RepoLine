@@ -108,7 +108,7 @@ During slower turns, RepoLine:
 - merges closely spaced final transcripts before sending them to the CLI
 - prompts the CLI to announce tool work and delegate deeper background investigation when useful
 
-## RepoLine Skill
+## RepoLine Skills
 
 RepoLine publishes a project-installable skill at [`skills/repoline-voice-session`](./skills/repoline-voice-session).
 
@@ -120,6 +120,12 @@ These instructions define how the coding agent should behave in spoken RepoLine 
 - one short sentence before tool work
 - short progress updates during longer tasks
 - concise spoken wrap-ups with outcome, blockers, and next step
+
+Setup also generates a mutable local pronunciation companion skill at
+[`skills/repoline-tts-pronunciation`](./skills/repoline-tts-pronunciation).
+That copy lives in the target repo, stays scoped to the configured TTS provider,
+and is where the agent should record fixes like saying `README.md` as "read me"
+instead of spelling it out letter by letter.
 
 To install it manually in another repo:
 

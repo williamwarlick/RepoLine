@@ -36,7 +36,7 @@ The bridge does not mirror or replay conversation history locally.
 
 The only continuity it keeps is a room-scoped provider session or thread ID. The coding CLI owns the real conversation state.
 
-Behavior guidance lives in the project-scoped `repoline-voice-session` Agent Skill. RepoLine installs that skill into the selected repo for the configured coding CLI and only adds a small RepoLine session hint at runtime.
+Behavior guidance lives in the project-scoped `repoline-voice-session` Agent Skill. RepoLine also installs a mutable local `repoline-tts-pronunciation` companion skill so pronunciation corrections stay scoped to the configured TTS provider. RepoLine only adds a small session hint at runtime.
 
 ## Current non-goals
 

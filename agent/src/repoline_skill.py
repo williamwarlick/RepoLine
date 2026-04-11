@@ -7,6 +7,7 @@ from typing import Literal
 from model_stream import TextStreamProvider, normalize_provider
 
 DEFAULT_REPOLINE_SKILL_NAME = "repoline-voice-session"
+DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME = "repoline-tts-pronunciation"
 PROJECT_SKILL_PATHS: dict[TextStreamProvider, tuple[str, ...]] = {
     "claude": (".claude", "skills"),
     "codex": (".agents", "skills"),
@@ -38,14 +39,32 @@ def installed_skill_markdown_path(
 def repoline_session_hint(
     provider: TextStreamProvider,
     skill_name: str = DEFAULT_REPOLINE_SKILL_NAME,
+    tts_pronunciation_skill_name: str | None = None,
+    has_tts_pronunciation_skill: bool = False,
 ) -> str:
     normalized_provider = normalize_provider(provider)
+    pronunciation_hint = ""
+    if has_tts_pronunciation_skill:
+        if normalized_provider == "cursor":
+            pronunciation_hint = (
+                " If the user says something sounded weird, was mispronounced, "
+                "or got spelled out letter by letter, use the installed RepoLine TTS "
+                "pronunciation rule silently and update its provider-specific notes."
+            )
+        elif tts_pronunciation_skill_name:
+            pronunciation_hint = (
+                " If the user says something sounded weird, was mispronounced, "
+                f"or got spelled out letter by letter, use the `{tts_pronunciation_skill_name}` "
+                "skill silently and update its provider-specific notes."
+            )
+
     if normalized_provider == "cursor":
         return (
             "This is a RepoLine voice session. "
             "Use the installed RepoLine voice rule silently for spoken phrasing, "
             "tool narration, and progress updates. "
             "Do not mention the rule file or say that you are following a rule unless the user asks."
+            f"{pronunciation_hint}"
         )
 
     return (
@@ -53,6 +72,7 @@ def repoline_session_hint(
         f"Use the `{skill_name}` skill silently for spoken phrasing, "
         "tool narration, and progress updates. "
         "Do not mention the skill name or say that you are using a skill unless the user asks."
+        f"{pronunciation_hint}"
     )
 
 
@@ -61,11 +81,22 @@ def resolve_repoline_skill_prompt(
     working_directory: str | Path,
     explicit_system_prompt: str | None,
     skill_name: str = DEFAULT_REPOLINE_SKILL_NAME,
+    tts_pronunciation_skill_name: str | None = DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
 ) -> RepoLineSkillPrompt:
     explicit = (explicit_system_prompt or "").strip()
+    has_tts_pronunciation_skill = bool(tts_pronunciation_skill_name) and (
+        installed_skill_markdown_path(
+            working_directory,
+            provider,
+            tts_pronunciation_skill_name or DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+        ).is_file()
+    )
     if explicit:
         return RepoLineSkillPrompt(
-            prompt=f"{explicit}\n\n{repoline_session_hint(provider, skill_name)}",
+            prompt=(
+                f"{explicit}\n\n"
+                f"{repoline_session_hint(provider, skill_name, tts_pronunciation_skill_name, has_tts_pronunciation_skill)}"
+            ),
             mode="env-override",
             skill_name=skill_name,
         )
@@ -75,7 +106,12 @@ def resolve_repoline_skill_prompt(
     )
     if installed_path.is_file():
         return RepoLineSkillPrompt(
-            prompt=repoline_session_hint(provider, skill_name),
+            prompt=repoline_session_hint(
+                provider,
+                skill_name,
+                tts_pronunciation_skill_name,
+                has_tts_pronunciation_skill,
+            ),
             mode="installed",
             skill_name=skill_name,
             source_path=str(installed_path),

@@ -31,7 +31,10 @@ from model_stream import (
     provider_display_name,
     stream_text_events,
 )
-from repoline_skill import resolve_repoline_skill_prompt
+from repoline_skill import (
+    DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+    resolve_repoline_skill_prompt,
+)
 from telemetry import BridgeTelemetry
 from voice_behavior import build_followup_status_message, build_initial_status_message
 
@@ -45,12 +48,17 @@ def _resolve_bridge_system_prompt() -> str:
     provider = normalize_provider(os.environ["BRIDGE_CLI_PROVIDER"])
     working_directory = os.environ["BRIDGE_WORKDIR"]
     skill_name = os.environ["REPOLINE_SKILL_NAME"]
+    tts_pronunciation_skill_name = os.getenv(
+        "REPOLINE_TTS_PRONUNCIATION_SKILL_NAME",
+        DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+    )
 
     return resolve_repoline_skill_prompt(
         provider=provider,
         working_directory=working_directory,
         explicit_system_prompt=os.getenv("BRIDGE_SYSTEM_PROMPT"),
         skill_name=skill_name,
+        tts_pronunciation_skill_name=tts_pronunciation_skill_name,
     ).prompt
 
 
@@ -113,6 +121,10 @@ class BridgeSettings:
     )
     provider: str = normalize_provider(os.environ["BRIDGE_CLI_PROVIDER"])
     skill_name: str = os.environ["REPOLINE_SKILL_NAME"]
+    tts_pronunciation_skill_name: str = os.getenv(
+        "REPOLINE_TTS_PRONUNCIATION_SKILL_NAME",
+        DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+    )
     chunk_chars: int = int(os.getenv("BRIDGE_CHUNK_CHARS", "140"))
     model: str | None = _env_optional("BRIDGE_MODEL")
     thinking_level: str | None = _resolve_thinking_level()
