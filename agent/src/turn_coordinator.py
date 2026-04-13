@@ -19,7 +19,6 @@ from model_stream import (
 )
 from telemetry import BridgeTelemetry
 from turn_strategy import join_transcript_parts, resolve_pending_turn_delay_seconds
-from voice_behavior import build_followup_status_message, build_initial_status_message
 
 logger = logging.getLogger("repoline-bridge")
 
@@ -63,10 +62,6 @@ class TurnCoordinatorConfig:
     final_transcript_debounce_seconds: float
     short_transcript_word_threshold: int
     short_transcript_debounce_seconds: float
-    status_speech_enabled: bool
-    status_speech_delay_seconds: float
-    status_followup_delay_seconds: float
-    status_followup_interval_seconds: float
 
     @classmethod
     def from_bridge_config(cls, config: BridgeConfig) -> TurnCoordinatorConfig:
@@ -81,10 +76,6 @@ class TurnCoordinatorConfig:
             final_transcript_debounce_seconds=config.final_transcript_debounce_seconds,
             short_transcript_word_threshold=config.short_transcript_word_threshold,
             short_transcript_debounce_seconds=config.short_transcript_debounce_seconds,
-            status_speech_enabled=config.status_speech_enabled,
-            status_speech_delay_seconds=config.status_speech_delay_seconds,
-            status_followup_delay_seconds=config.status_followup_delay_seconds,
-            status_followup_interval_seconds=config.status_followup_interval_seconds,
         )
 
 
@@ -109,12 +100,9 @@ class TurnCoordinator:
         self._active_turn_task: asyncio.Task[None] | None = None
         self._active_speech: SpeechHandle | None = None
         self._pending_turn_task: asyncio.Task[None] | None = None
-        self._pending_status_task: asyncio.Task[None] | None = None
-        self._pending_status_speech: SpeechHandle | None = None
         self._pending_user_parts: list[str] = []
         self._pending_turn_id: str | None = None
         self._pending_last_transcript_at = 0.0
-        self._pending_status_announced = False
         self._last_completed_stream_session_id: str | None = None
         self._turn_lock = asyncio.Lock()
 
@@ -125,7 +113,6 @@ class TurnCoordinator:
 
         if is_final and self._pending_turn_id is None:
             self._pending_turn_id = str(uuid.uuid4())
-            self._pending_status_announced = False
             self._telemetry.emit("turn_opened", turn_id=self._pending_turn_id, transcript=text)
 
         if self._pending_turn_id is not None:
@@ -139,25 +126,10 @@ class TurnCoordinator:
         )
 
         if not is_final:
-            if self._pending_status_task is not None and not self._pending_status_task.done():
-                self._pending_status_task.cancel()
-                self._pending_status_task = None
-            if self._pending_status_speech is not None and not self._pending_status_speech.done():
-                with contextlib.suppress(RuntimeError):
-                    self._pending_status_speech.interrupt(force=True)
             return
 
         logger.info("Final transcript: %s", text)
         self._pending_user_parts.append(text)
-
-        if (
-            not self._pending_status_announced
-            and (self._pending_status_task is None or self._pending_status_task.done())
-            and self._pending_turn_id is not None
-        ):
-            self._pending_status_task = asyncio.create_task(
-                self._maybe_speak_pending_status(self._pending_turn_id)
-            )
 
         if self._pending_turn_task is None or self._pending_turn_task.done():
             self._pending_turn_task = asyncio.create_task(self._flush_pending_turn())
@@ -214,23 +186,7 @@ class TurnCoordinator:
                 await self._active_turn_task
         self._active_turn_task = None
 
-    async def _stop_pending_status(self) -> None:
-        if self._pending_status_speech is not None and not self._pending_status_speech.done():
-            with contextlib.suppress(RuntimeError):
-                self._pending_status_speech.interrupt(force=True)
-            with contextlib.suppress(Exception):
-                await self._pending_status_speech.wait_for_playout()
-        self._pending_status_speech = None
-
-        if self._pending_status_task is not None and not self._pending_status_task.done():
-            self._pending_status_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._pending_status_task
-        self._pending_status_task = None
-
     async def _stop_pending_turn(self) -> None:
-        await self._stop_pending_status()
-
         if self._pending_turn_task is not None and not self._pending_turn_task.done():
             self._pending_turn_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -240,41 +196,6 @@ class TurnCoordinator:
         self._pending_user_parts.clear()
         self._pending_turn_id = None
         self._pending_last_transcript_at = 0.0
-        self._pending_status_announced = False
-
-    async def _maybe_speak_pending_status(self, turn_id: str) -> None:
-        if not self._config.status_speech_enabled:
-            return
-
-        speech_handle = None
-        try:
-            await self._sleep(self._config.status_speech_delay_seconds)
-
-            if self._pending_turn_id != turn_id:
-                return
-
-            transcript_preview = join_transcript_parts(self._pending_user_parts)
-            message = build_initial_status_message(transcript_preview)
-            self._telemetry.emit(
-                "bridge_status_started",
-                turn_id=turn_id,
-                transcript=transcript_preview,
-                message=message,
-            )
-            self._pending_status_announced = True
-            speech_handle = self._session.say(
-                message,
-                allow_interruptions=True,
-                add_to_chat_ctx=False,
-            )
-            self._pending_status_speech = speech_handle
-            await speech_handle.wait_for_playout()
-            self._telemetry.emit("bridge_status_completed", turn_id=turn_id, message=message)
-        except asyncio.CancelledError:
-            raise
-        finally:
-            if self._pending_status_speech is speech_handle:
-                self._pending_status_speech = None
 
     async def _start_turn(self, turn_id: str, user_text: str) -> None:
         async with self._turn_lock:
@@ -314,62 +235,7 @@ class TurnCoordinator:
 
         event_stream = self._stream_events(config)
         speech_handle = None
-        followup_status_task: asyncio.Task[None] | None = None
-        followup_status_speech: SpeechHandle | None = None
-        followup_status_count = 0
         artifact_sequence = 0
-
-        async def stop_followup_status() -> None:
-            nonlocal followup_status_task, followup_status_speech
-
-            if followup_status_speech is not None and not followup_status_speech.done():
-                with contextlib.suppress(RuntimeError):
-                    followup_status_speech.interrupt(force=True)
-                with contextlib.suppress(Exception):
-                    await followup_status_speech.wait_for_playout()
-            followup_status_speech = None
-
-            if followup_status_task is not None and not followup_status_task.done():
-                followup_status_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await followup_status_task
-            followup_status_task = None
-
-        async def maybe_speak_followup_status() -> None:
-            nonlocal followup_status_count, followup_status_speech
-
-            if not self._config.status_speech_enabled:
-                return
-
-            await self._sleep(self._config.status_followup_delay_seconds)
-
-            while True:
-                message = build_followup_status_message(user_text, followup_status_count)
-                followup_status_count += 1
-                self._telemetry.emit(
-                    "bridge_status_followup_started",
-                    turn_id=turn_id,
-                    transcript=user_text,
-                    message=message,
-                )
-                current_speech = self._session.say(
-                    message,
-                    allow_interruptions=True,
-                    add_to_chat_ctx=False,
-                )
-                followup_status_speech = current_speech
-                try:
-                    await current_speech.wait_for_playout()
-                    self._telemetry.emit(
-                        "bridge_status_followup_completed",
-                        turn_id=turn_id,
-                        message=message,
-                    )
-                finally:
-                    if followup_status_speech is current_speech:
-                        followup_status_speech = None
-
-                await self._sleep(self._config.status_followup_interval_seconds)
 
         async def consume_event(event: TextStreamEvent) -> str | None:
             nonlocal active_session_id, artifact_sequence, error_message, saw_text, turn_completed
@@ -462,7 +328,6 @@ class TurnCoordinator:
             return None
 
         try:
-            followup_status_task = asyncio.create_task(maybe_speak_followup_status())
             first_chunk = None
             async for event in event_stream:
                 chunk = await consume_event(event)
@@ -473,15 +338,12 @@ class TurnCoordinator:
                     break
 
             if first_chunk is None:
-                await stop_followup_status()
                 if error_message:
                     raise TextStreamError(error_message)
                 raise TextStreamError(
                     f"{provider_name} finished without producing speech text."
                 )
 
-            await stop_followup_status()
-            await self._stop_pending_status()
             self._telemetry.emit(
                 "model_first_chunk_ready",
                 turn_id=turn_id,
@@ -516,7 +378,6 @@ class TurnCoordinator:
                 latency_ms=round((self._monotonic() - started_at) * 1000, 1),
             )
         except StopAsyncIteration:
-            await stop_followup_status()
             logger.warning("%s finished without returning speech text", provider_name)
             self._telemetry.emit(
                 "model_empty_turn",
@@ -525,10 +386,8 @@ class TurnCoordinator:
                 stream_session_id=active_session_id,
             )
         except TextStreamError as exc:
-            await stop_followup_status()
             logger.exception("%s stream failed: %s", provider_name, exc)
             message = str(exc).strip() or f"{provider_name} failed before returning a response."
-            await self._stop_pending_status()
             speech_handle = self._session.say(
                 message,
                 allow_interruptions=True,
@@ -544,7 +403,6 @@ class TurnCoordinator:
             )
             await speech_handle.wait_for_playout()
         except asyncio.CancelledError:
-            await stop_followup_status()
             if speech_handle is not None and not speech_handle.done():
                 with contextlib.suppress(RuntimeError):
                     speech_handle.interrupt(force=True)
@@ -556,7 +414,6 @@ class TurnCoordinator:
             )
             raise
         finally:
-            await stop_followup_status()
             if turn_completed:
                 logger.info(
                     "%s turn completed successfully; next turn will resume from session %s",
@@ -602,7 +459,6 @@ class TurnCoordinator:
             self._pending_user_parts.clear()
             self._pending_last_transcript_at = 0.0
             if not text:
-                await self._stop_pending_status()
                 return
             logger.info(
                 "Starting %s turn with merged transcript: %s",

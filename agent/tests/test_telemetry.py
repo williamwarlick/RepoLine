@@ -29,9 +29,6 @@ def test_bridge_telemetry_writes_latest_call_summary(tmp_path) -> None:
         workdir="/tmp/repo",
     )
     telemetry.emit("turn_opened", turn_id="turn-123", transcript="hello")
-    telemetry.emit(
-        "bridge_status_started", turn_id="turn-123", message="I'm checking that now."
-    )
     telemetry.emit("model_first_chunk_ready", turn_id="turn-123", latency_ms=1234.5)
     telemetry.emit("model_speech_chunk", turn_id="turn-123", text="Hello there.")
     telemetry.emit(

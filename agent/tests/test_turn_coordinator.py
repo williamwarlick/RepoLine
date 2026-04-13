@@ -7,7 +7,6 @@ import pytest
 
 from model_stream import TextStreamEvent
 from turn_coordinator import TurnCoordinator, TurnCoordinatorConfig
-from voice_behavior import build_initial_status_message
 
 
 class FakeTelemetry:
@@ -102,10 +101,6 @@ def _config(**overrides: object) -> TurnCoordinatorConfig:
         "final_transcript_debounce_seconds": 0.01,
         "short_transcript_word_threshold": 2,
         "short_transcript_debounce_seconds": 0.03,
-        "status_speech_enabled": False,
-        "status_speech_delay_seconds": 0.0,
-        "status_followup_delay_seconds": 0.01,
-        "status_followup_interval_seconds": 0.05,
     }
     values.update(overrides)
     return TurnCoordinatorConfig(**values)
@@ -214,8 +209,7 @@ async def test_final_interruption_replaces_active_speech_with_new_turn() -> None
 
 
 @pytest.mark.asyncio
-async def test_initial_status_speaks_once_for_merged_transcripts_and_followups_stop(
-    ) -> None:
+async def test_turn_coordinator_never_inserts_bridge_status_speech() -> None:
     session = FakeSession()
     telemetry = FakeTelemetry()
 
@@ -226,20 +220,18 @@ async def test_initial_status_speaks_once_for_merged_transcripts_and_followups_s
         yield TextStreamEvent(type="done", exit_code=0, session_id="s1")
 
     coordinator = TurnCoordinator(
-        config=_config(status_speech_enabled=True),
+        config=_config(),
         session=session,
         telemetry=telemetry,
         stream_events=stream_events,
     )
 
-    coordinator.on_user_input_transcribed("Need", is_final=True)
+    coordinator.on_user_input_transcribed("This", is_final=True)
     await asyncio.sleep(0.005)
-    coordinator.on_user_input_transcribed("help", is_final=True)
+    coordinator.on_user_input_transcribed("codebase", is_final=True)
     await asyncio.sleep(0.15)
     await coordinator.shutdown()
 
-    spoken_messages = [handle.text for handle in session.string_messages]
-    assert spoken_messages.count(build_initial_status_message("Need help")) == 1
-    assert len(spoken_messages) == 2
-    assert any(event == "bridge_status_followup_started" for event, _ in telemetry.events)
+    assert session.string_messages == []
+    assert not any(event.startswith("bridge_status") for event, _ in telemetry.events)
     assert session.stream_messages[0].chunks == ["First chunk."]

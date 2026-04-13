@@ -122,31 +122,6 @@ def test_bridge_config_load_disables_livekit_recording_by_default(
     assert config.livekit_record_logs is False
     assert config.livekit_record_transcript is False
 
-
-def test_bridge_config_disables_status_speech_by_default(tmp_path: Path) -> None:
-    workdir = tmp_path / "repo"
-    _install_skill(workdir, "claude", "repoline-voice-session")
-
-    config = BridgeConfig.load(
-        _base_env(workdir),
-        repo_root=tmp_path,
-    )
-
-    assert config.status_speech_enabled is False
-
-
-def test_bridge_config_allows_opt_in_status_speech(tmp_path: Path) -> None:
-    workdir = tmp_path / "repo"
-    _install_skill(workdir, "claude", "repoline-voice-session")
-
-    config = BridgeConfig.load(
-        _base_env(workdir, BRIDGE_STATUS_SPEECH_ENABLED="true"),
-        repo_root=tmp_path,
-    )
-
-    assert config.status_speech_enabled is True
-
-
 def test_bridge_config_load_raises_for_invalid_prometheus_port(tmp_path: Path) -> None:
     workdir = tmp_path / "repo"
     _install_skill(workdir, "claude", "repoline-voice-session")

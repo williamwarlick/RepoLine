@@ -27,10 +27,6 @@ class BridgeConfig:
     final_transcript_debounce_seconds: float
     short_transcript_word_threshold: int
     short_transcript_debounce_seconds: float
-    status_speech_enabled: bool
-    status_speech_delay_seconds: float
-    status_followup_delay_seconds: float
-    status_followup_interval_seconds: float
     telemetry_jsonl_path: str | None
     livekit_record_audio: bool
     livekit_record_traces: bool
@@ -107,18 +103,6 @@ class BridgeConfig:
             ),
             short_transcript_debounce_seconds=float(
                 env.get("BRIDGE_SHORT_TRANSCRIPT_DEBOUNCE_SECONDS", "2.75")
-            ),
-            status_speech_enabled=_env_bool(
-                env, "BRIDGE_STATUS_SPEECH_ENABLED", False
-            ),
-            status_speech_delay_seconds=float(
-                env.get("BRIDGE_STATUS_SPEECH_DELAY_SECONDS", "0.15")
-            ),
-            status_followup_delay_seconds=float(
-                env.get("BRIDGE_STATUS_FOLLOWUP_DELAY_SECONDS", "4.0")
-            ),
-            status_followup_interval_seconds=float(
-                env.get("BRIDGE_STATUS_FOLLOWUP_INTERVAL_SECONDS", "8.0")
             ),
             telemetry_jsonl_path=env.get("BRIDGE_TELEMETRY_JSONL")
             or str(agent_dir / "logs" / "bridge-telemetry.jsonl"),

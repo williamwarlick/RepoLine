@@ -28,7 +28,6 @@ Use `console` instead of `dev` if you want to test the agent locally without the
 - `BRIDGE_THINKING_LEVEL`
 - `BRIDGE_ACCESS_POLICY` (`readonly`, `workspace-write`, or `owner`)
 - `BRIDGE_SYSTEM_PROMPT` for explicit overrides
-- `BRIDGE_STATUS_SPEECH_ENABLED` to let the bridge speak interim status updates
 - `BRIDGE_TELEMETRY_JSONL` to change the local telemetry output path
 - `LIVEKIT_STT_MODEL`
 - `LIVEKIT_TTS_MODEL`
