@@ -92,7 +92,7 @@ function scaleImageSize(size: { width: number; height: number }, desiredHeight: 
 
 function cleanPageTitle(appName: string) {
   if (appName === APP_CONFIG_DEFAULTS.pageTitle) {
-    return 'Call your codebase';
+    return 'A voice bridge for CLI coding agents';
   }
 
   return appName;

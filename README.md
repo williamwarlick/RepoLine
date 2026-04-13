@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <strong>Call your codebase.</strong><br />
-  Talk to your local coding CLI from your phone or browser over LiveKit.
+  <strong>A voice bridge for CLI coding agents.</strong><br />
+  Call Claude Code, Codex, Cursor, and other local coding CLIs from your phone or browser.
 </p>
 
 <p align="center">
@@ -18,7 +18,7 @@
   <img src="https://img.shields.io/badge/voice-LiveKit-0b1320.svg" alt="LiveKit" />
 </p>
 
-RepoLine bridges a LiveKit phone or browser session to a coding CLI running in a local repo.
+RepoLine is a voice bridge that connects a LiveKit phone or browser session to a coding CLI running in a local repo.
 The CLI session stays local to your machine, keeps its existing auth and tool access, and speaks results back over voice.
 Model inference still happens wherever your chosen coding CLI normally sends it.
 
