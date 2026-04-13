@@ -1,0 +1,25 @@
+---
+description: RepoLine TTS pronunciation behavior
+alwaysApply: true
+---
+
+# RepoLine TTS Pronunciation
+
+Apply this rule in RepoLine voice sessions when the user corrects how something should sound.
+
+## Current Provider
+
+- TTS model: cartesia/sonic-3
+- TTS voice: 9626c31c-bec5-4cca-baa8-f8ba9e84c8bc
+
+## What To Do
+
+- Treat "you said that weird" as actionable speech feedback.
+- Fix the wording immediately in the current reply when possible.
+- Update the pronunciation rules in this file so the correction sticks for this provider.
+- Keep every rule short, explicit, and easy to apply while speaking.
+
+## Active Pronunciation Rules
+
+- Say `README.md` as "read me."
+- Do not spell out `README.md` letter by letter.
