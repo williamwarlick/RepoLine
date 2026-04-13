@@ -1,9 +1,9 @@
 'use client';
 
-import { useSessionContext } from '@livekit/components-react';
 import type { VariantProps } from 'class-variance-authority';
 import { PhoneOffIcon } from 'lucide-react';
 import type { ComponentProps } from 'react';
+import { useVoiceSessionController } from '@/components/app/voice-session-controller';
 import { Button, type buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/shadcn/utils';
 
@@ -56,12 +56,10 @@ export function AgentDisconnectButton({
   onClick,
   ...props
 }: AgentDisconnectButtonProps) {
-  const { end } = useSessionContext();
+  const { endCall } = useVoiceSessionController();
   const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     onClick?.(event);
-    if (typeof end === 'function') {
-      end();
-    }
+    endCall();
   };
 
   return (

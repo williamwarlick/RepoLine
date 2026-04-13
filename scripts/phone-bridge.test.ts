@@ -320,6 +320,10 @@ function createSetupFixture(root: string): string {
     join(REPO_ROOT, 'scripts', 'bridge-runtime-config.ts'),
     join(repoRoot, 'scripts', 'bridge-runtime-config.ts')
   );
+  cpSync(
+    join(REPO_ROOT, 'scripts', 'bridge-installation-contract.ts'),
+    join(repoRoot, 'scripts', 'bridge-installation-contract.ts')
+  );
   cpSync(join(REPO_ROOT, 'scripts', 'bridge-doctor.ts'), join(repoRoot, 'scripts', 'bridge-doctor.ts'));
   cpSync(join(REPO_ROOT, 'skills', REPOLINE_SKILL_NAME), join(repoRoot, 'skills', REPOLINE_SKILL_NAME), {
     recursive: true,

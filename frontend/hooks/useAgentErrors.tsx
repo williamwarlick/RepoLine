@@ -1,6 +1,7 @@
-import { useAgent, useSessionContext } from '@livekit/components-react';
+import { useAgent } from '@livekit/components-react';
 import { WarningIcon } from '@phosphor-icons/react';
 import { type ReactNode, useEffect } from 'react';
+import { useVoiceSessionController } from '@/components/app/voice-session-controller';
 import { toast as sonnerToast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
@@ -26,7 +27,7 @@ function toastAlert(toast: ToastProps) {
 
 export function useAgentErrors() {
   const agent = useAgent();
-  const { isConnected, end } = useSessionContext();
+  const { isConnected, endCall } = useVoiceSessionController();
 
   useEffect(() => {
     if (isConnected && agent.state === 'failed') {
@@ -59,7 +60,7 @@ export function useAgentErrors() {
         ),
       });
 
-      end();
+      endCall();
     }
-  }, [agent, isConnected, end]);
+  }, [agent, endCall, isConnected]);
 }

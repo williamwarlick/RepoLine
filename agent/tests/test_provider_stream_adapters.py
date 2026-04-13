@@ -5,11 +5,8 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from provider_stream.adapter import stream_text_chunks
-from provider_stream.claude import ClaudeProviderStreamAdapter
-from provider_stream.codex import CodexProviderStreamAdapter
+from model_stream import ProviderStreamFacade
 from provider_stream.common import TextStreamConfig, TextStreamError, TextStreamEvent
-from provider_stream.cursor import CursorProviderStreamAdapter
 
 
 class FakeProcess:
@@ -53,7 +50,7 @@ async def _collect_events(events: AsyncIterator[TextStreamEvent]) -> list[TextSt
 
 @pytest.mark.asyncio
 async def test_claude_adapter_streams_partial_text_and_tool_artifacts() -> None:
-    adapter = ClaudeProviderStreamAdapter()
+    facade = ProviderStreamFacade()
     runner = FakeRunner(
         FakeProcess(
             [
@@ -89,14 +86,14 @@ async def test_claude_adapter_streams_partial_text_and_tool_artifacts() -> None:
     )
 
     events = await _collect_events(
-        adapter.stream(
+        facade.events(
             TextStreamConfig(
                 provider="claude",
                 prompt="Hello",
                 session_id="claude-session",
                 chunk_chars=8,
             ),
-            runner,
+            runner=runner,
         )
     )
 
@@ -113,7 +110,7 @@ async def test_claude_adapter_streams_partial_text_and_tool_artifacts() -> None:
 
 @pytest.mark.asyncio
 async def test_codex_adapter_streams_deltas_and_item_artifacts() -> None:
-    adapter = CodexProviderStreamAdapter()
+    facade = ProviderStreamFacade()
     runner = FakeRunner(
         FakeProcess(
             [
@@ -146,13 +143,13 @@ async def test_codex_adapter_streams_deltas_and_item_artifacts() -> None:
     )
 
     events = await _collect_events(
-        adapter.stream(
+        facade.events(
             TextStreamConfig(
                 provider="codex",
                 prompt="Hello",
                 chunk_chars=8,
             ),
-            runner,
+            runner=runner,
         )
     )
 
@@ -175,7 +172,7 @@ async def test_codex_adapter_streams_deltas_and_item_artifacts() -> None:
 
 @pytest.mark.asyncio
 async def test_cursor_adapter_ignores_replayed_full_text_updates() -> None:
-    adapter = CursorProviderStreamAdapter()
+    facade = ProviderStreamFacade()
     runner = FakeRunner(
         FakeProcess(
             [
@@ -221,13 +218,13 @@ async def test_cursor_adapter_ignores_replayed_full_text_updates() -> None:
     )
 
     events = await _collect_events(
-        adapter.stream(
+        facade.events(
             TextStreamConfig(
                 provider="cursor",
                 prompt="Hello",
                 chunk_chars=8,
             ),
-            runner,
+            runner=runner,
         )
     )
 
@@ -241,7 +238,7 @@ async def test_cursor_adapter_ignores_replayed_full_text_updates() -> None:
 
 @pytest.mark.asyncio
 async def test_cursor_adapter_reports_result_errors() -> None:
-    adapter = CursorProviderStreamAdapter()
+    facade = ProviderStreamFacade()
     runner = FakeRunner(
         FakeProcess(
             [
@@ -259,12 +256,12 @@ async def test_cursor_adapter_reports_result_errors() -> None:
     )
 
     events = await _collect_events(
-        adapter.stream(
+        facade.events(
             TextStreamConfig(
                 provider="cursor",
                 prompt="Hello",
             ),
-            runner,
+            runner=runner,
         )
     )
 
@@ -275,9 +272,10 @@ async def test_cursor_adapter_reports_result_errors() -> None:
 
 @pytest.mark.asyncio
 async def test_stream_text_chunks_raises_when_provider_finishes_without_text() -> None:
+    facade = ProviderStreamFacade()
     runner = FakeRunner(FakeProcess([json.dumps({"type": "task_complete"})]))
     config = TextStreamConfig(provider="codex", prompt="Hello")
 
     with pytest.raises(TextStreamError, match="finished without producing speech text"):
-        async for _ in stream_text_chunks(config, runner=runner):
+        async for _ in facade.chunks(config, runner=runner):
             pass

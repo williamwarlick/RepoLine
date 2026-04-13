@@ -22,7 +22,7 @@ from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
 from bridge_config import BridgeConfig
 from telemetry import BridgeTelemetry
-from turn_coordinator import TurnCoordinator, TurnCoordinatorConfig
+from turn_orchestrator import TurnInput, TurnOrchestrator, TurnOrchestratorConfig
 
 logger = logging.getLogger("repoline-bridge")
 REPOLINE_UI_ARTIFACT_TOPIC = "repoline.ui.artifact"
@@ -129,8 +129,8 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
     )
 
     agent = _new_agent()
-    coordinator = TurnCoordinator(
-        config=TurnCoordinatorConfig.from_bridge_config(SETTINGS),
+    orchestrator = TurnOrchestrator(
+        config=TurnOrchestratorConfig.from_bridge_config(SETTINGS),
         session=LiveKitTurnSession(session),
         telemetry=telemetry,
     )
@@ -164,11 +164,12 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             attributes=reader.info.attributes,
             transcript=text,
         )
-        await coordinator.submit_text_turn(
-            text,
-            source="chat_text",
-            participant_identity=participant_identity,
-            message_id=message_id,
+        await orchestrator.submit(
+            TurnInput.chat_text(
+                text,
+                participant_identity=participant_identity,
+                message_id=message_id,
+            )
         )
 
     async def handle_legacy_chat_packet(packet) -> None:
@@ -202,11 +203,12 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             topic=packet.topic,
             transcript=text,
         )
-        await coordinator.submit_text_turn(
-            text,
-            source="chat_legacy",
-            participant_identity=participant.identity,
-            message_id=message_id if isinstance(message_id, str) else None,
+        await orchestrator.submit(
+            TurnInput.legacy_chat(
+                text,
+                participant_identity=participant.identity,
+                message_id=message_id if isinstance(message_id, str) else None,
+            )
         )
 
     @session.on("agent_state_changed")
@@ -261,13 +263,19 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             reason=event.reason,
             error=event.error,
         )
-        track_background_task(asyncio.create_task(coordinator.shutdown()))
+        track_background_task(asyncio.create_task(orchestrator.shutdown()))
 
     @session.on("user_input_transcribed")
     def on_user_input_transcribed(transcript) -> None:
-        coordinator.on_user_input_transcribed(
-            transcript.transcript,
-            is_final=transcript.is_final,
+        track_background_task(
+            asyncio.create_task(
+                orchestrator.submit(
+                    TurnInput.voice_transcript(
+                        transcript.transcript,
+                        is_final=transcript.is_final,
+                    )
+                )
+            )
         )
 
     def on_chat_text_stream(reader, participant_identity: str) -> None:

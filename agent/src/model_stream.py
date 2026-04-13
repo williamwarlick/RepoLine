@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from provider_stream.adapter import (
+    DEFAULT_PROVIDER_STREAM_FACADE,
     ProviderStreamAdapter,
+    ProviderStreamFacade,
     build_stream_command,
     get_provider_adapter,
     stream_text_chunks,
     stream_text_events,
 )
-from provider_stream.claude import ClaudeProviderStreamAdapter
-from provider_stream.codex import CodexProviderStreamAdapter
 from provider_stream.common import (
     ACCESS_POLICY_ALIASES,
     AccessPolicy,
@@ -31,30 +31,27 @@ from provider_stream.common import (
     normalize_provider,
     provider_display_name,
 )
-from provider_stream.cursor import CursorProviderStreamAdapter
-
-_CLAUDE_ADAPTER = ClaudeProviderStreamAdapter()
-_CODEX_ADAPTER = CodexProviderStreamAdapter()
-_CURSOR_ADAPTER = CursorProviderStreamAdapter()
 
 
 def build_claude_command(config: TextStreamConfig) -> list[str]:
-    return _CLAUDE_ADAPTER.build_command(config)
+    return get_provider_adapter("claude").build_command(config)
 
 
 def build_codex_command(config: TextStreamConfig) -> list[str]:
-    return _CODEX_ADAPTER.build_command(config)
+    return get_provider_adapter("codex").build_command(config)
 
 
 def build_cursor_command(config: TextStreamConfig) -> list[str]:
-    return _CURSOR_ADAPTER.build_command(config)
+    return get_provider_adapter("cursor").build_command(config)
 
 
 __all__ = [
     "ACCESS_POLICY_ALIASES",
     "AccessPolicy",
+    "DEFAULT_PROVIDER_STREAM_FACADE",
     "ArtifactKind",
     "ProviderStreamAdapter",
+    "ProviderStreamFacade",
     "SentenceChunker",
     "TextStreamConfig",
     "TextStreamError",
