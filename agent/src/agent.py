@@ -17,10 +17,10 @@ from livekit.agents import (
     inference,
 )
 from livekit.agents.metrics import log_metrics
-from livekit.plugins import silero
+from livekit.plugins import deepgram, elevenlabs, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-from bridge_config import BridgeConfig
+from bridge_config import BridgeConfig, render_call_greeting
 from telemetry import BridgeTelemetry
 from turn_orchestrator import TurnInput, TurnOrchestrator, TurnOrchestratorConfig
 
@@ -49,6 +49,45 @@ def _new_agent() -> Agent:
             "You are the transport layer for a RepoLine voice bridge. "
             "LiveKit handles audio; the configured coding CLI handles the actual replies."
         )
+    )
+
+
+def _build_stt() -> object:
+    if SETTINGS.stt_provider == "deepgram":
+        kwargs = {
+            "model": SETTINGS.stt_model,
+            "language": SETTINGS.stt_language,
+            "smart_format": True,
+            "punctuate": True,
+            "filler_words": True,
+            "profanity_filter": False,
+        }
+        api_key = os.getenv("DEEPGRAM_API_KEY")
+        if api_key:
+            kwargs["api_key"] = api_key
+        return deepgram.STT(**kwargs)
+
+    return inference.STT(
+        model=SETTINGS.stt_model,
+        language=SETTINGS.stt_language,
+    )
+
+
+def _build_tts() -> object:
+    if SETTINGS.tts_provider == "elevenlabs":
+        kwargs = {
+            "voice_id": SETTINGS.tts_voice,
+            "model": SETTINGS.tts_model,
+            "enable_ssml_parsing": True,
+        }
+        api_key = os.getenv("ELEVENLABS_API_KEY")
+        if api_key:
+            kwargs["api_key"] = api_key
+        return elevenlabs.TTS(**kwargs)
+
+    return inference.TTS(
+        model=SETTINGS.tts_model,
+        voice=SETTINGS.tts_voice,
     )
 
 
@@ -104,14 +143,8 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
     )
 
     session = AgentSession(
-        stt=inference.STT(
-            model=SETTINGS.stt_model,
-            language=SETTINGS.stt_language,
-        ),
-        tts=inference.TTS(
-            model=SETTINGS.tts_model,
-            voice=SETTINGS.tts_voice,
-        ),
+        stt=_build_stt(),
+        tts=_build_tts(),
         turn_handling={
             "turn_detection": MultilingualModel(),
             "endpointing": {
@@ -304,7 +337,7 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
     )
     await ctx.connect()
 
-    greeting = session.say(SETTINGS.greeting, add_to_chat_ctx=False)
+    greeting = session.say(render_call_greeting(SETTINGS), add_to_chat_ctx=False)
     await greeting.wait_for_playout()
 
 

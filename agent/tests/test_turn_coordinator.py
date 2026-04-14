@@ -92,6 +92,7 @@ class FakeSession:
 def _config(**overrides: object) -> TurnCoordinatorConfig:
     values: dict[str, object] = {
         "provider": "claude",
+        "provider_transport": None,
         "chunk_chars": 8,
         "model": None,
         "thinking_level": "low",
@@ -209,13 +210,12 @@ async def test_final_interruption_replaces_active_speech_with_new_turn() -> None
 
 
 @pytest.mark.asyncio
-async def test_turn_coordinator_never_inserts_bridge_status_speech() -> None:
+async def test_turn_coordinator_skips_bridge_status_for_fast_first_chunk() -> None:
     session = FakeSession()
     telemetry = FakeTelemetry()
 
     async def stream_events(config) -> AsyncIterator[TextStreamEvent]:
         del config
-        await asyncio.sleep(0.03)
         yield TextStreamEvent(type="speech_chunk", text="First chunk.", session_id="s1")
         yield TextStreamEvent(type="done", exit_code=0, session_id="s1")
 
@@ -226,10 +226,8 @@ async def test_turn_coordinator_never_inserts_bridge_status_speech() -> None:
         stream_events=stream_events,
     )
 
-    coordinator.on_user_input_transcribed("This", is_final=True)
-    await asyncio.sleep(0.005)
-    coordinator.on_user_input_transcribed("codebase", is_final=True)
-    await asyncio.sleep(0.15)
+    await coordinator.submit_text_turn("Quick answer", source="chat_text")
+    await asyncio.sleep(0.02)
     await coordinator.shutdown()
 
     assert session.string_messages == []

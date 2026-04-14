@@ -6,9 +6,13 @@ import shlex
 from dataclasses import dataclass
 from typing import Any, Literal
 
-TextStreamProvider = Literal["claude", "codex", "cursor"]
+TextStreamProvider = Literal["claude", "codex", "cursor", "gemini"]
+ProviderTransport = Literal["api", "app", "cli"]
 AccessPolicy = Literal["readonly", "workspace-write", "owner"]
 ArtifactKind = Literal["tool", "code", "diff"]
+
+DEFAULT_CURSOR_MODEL = "composer-2-fast"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 SENTENCE_END_RE = re.compile(r"(.+?[.!?](?:['\"])?(?:\s+|$))", re.DOTALL)
 FENCED_CODE_BLOCK_RE = re.compile(r"```(?P<lang>[^\n`]*)\n(?P<body>.*?)```", re.DOTALL)
@@ -34,6 +38,7 @@ class TextStreamError(RuntimeError):
 class TextStreamConfig:
     prompt: str
     provider: TextStreamProvider = "claude"
+    provider_transport: ProviderTransport | None = None
     session_id: str | None = None
     resume_session_id: str | None = None
     system_prompt: str | None = None
@@ -108,7 +113,7 @@ def normalize_provider(value: str | None) -> TextStreamProvider:
     normalized = (value or "claude").strip().lower()
     if normalized == "cursor-agent":
         normalized = "cursor"
-    if normalized not in {"claude", "codex", "cursor"}:
+    if normalized not in {"claude", "codex", "cursor", "gemini"}:
         raise ValueError(f"unsupported bridge provider: {value}")
     return normalized  # type: ignore[return-value]
 
@@ -152,15 +157,25 @@ def infer_access_policy(
     return "readonly"
 
 
-def provider_display_name(provider: TextStreamProvider) -> str:
+def provider_display_name(
+    provider: TextStreamProvider, transport: ProviderTransport | None = None
+) -> str:
     if provider == "claude":
         return "Claude Code"
     if provider == "codex":
         return "Codex CLI"
-    return "Cursor Agent"
+    if provider == "cursor":
+        if transport == "app":
+            return "Cursor App"
+        return "Cursor Agent"
+    if provider == "gemini" and transport == "api":
+        return "Gemini API"
+    return "Gemini CLI"
 
 
-def extract_text_from_content(content: list[dict[str, Any]]) -> str:
+def extract_text_from_content(
+    content: list[dict[str, Any]], *, preserve_whitespace: bool = False
+) -> str:
     text_parts: list[str] = []
 
     for block in content:
@@ -168,8 +183,20 @@ def extract_text_from_content(content: list[dict[str, Any]]) -> str:
             continue
 
         text = block.get("text")
-        if isinstance(text, str) and text.strip():
+        if not isinstance(text, str):
+            continue
+
+        if preserve_whitespace:
+            if text:
+                text_parts.append(text)
+            continue
+
+        if text.strip():
             text_parts.append(text.strip())
+
+    if preserve_whitespace:
+        combined = "".join(text_parts)
+        return combined if combined.strip() else ""
 
     return " ".join(text_parts).strip()
 

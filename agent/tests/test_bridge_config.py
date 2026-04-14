@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from bridge_config import BridgeConfig
+from bridge_config import BridgeConfig, render_call_greeting
 
 
 def _install_skill(workdir: Path, provider: str, skill_name: str) -> None:
@@ -121,6 +121,208 @@ def test_bridge_config_load_disables_livekit_recording_by_default(
     assert config.livekit_record_traces is False
     assert config.livekit_record_logs is False
     assert config.livekit_record_transcript is False
+
+
+def test_bridge_config_load_defaults_cursor_model_to_composer_2_fast(
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "cursor", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(
+            workdir,
+            BRIDGE_CLI_PROVIDER="cursor",
+        ),
+        repo_root=tmp_path,
+    )
+
+    assert config.model == "composer-2-fast"
+    assert config.provider_transport == "cli"
+    assert config.chunk_chars == 80
+    assert config.final_transcript_debounce_seconds == 0.35
+    assert config.short_transcript_debounce_seconds == 0.55
+    assert config.turn_min_endpointing_delay_seconds == 0.35
+    assert config.turn_max_endpointing_delay_seconds == 1.4
+
+
+def test_bridge_config_load_defaults_gemini_model_to_flash(
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "gemini", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(
+            workdir,
+            BRIDGE_CLI_PROVIDER="gemini",
+        ),
+        repo_root=tmp_path,
+    )
+
+    assert config.provider == "gemini"
+    assert config.provider_transport == "cli"
+    assert config.model == "gemini-2.5-flash"
+    assert "Use the `repoline-voice-session` skill silently" in config.system_prompt
+
+
+def test_bridge_config_load_supports_gemini_api_transport(tmp_path: Path) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "gemini", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(
+            workdir,
+            BRIDGE_CLI_PROVIDER="gemini",
+            BRIDGE_GEMINI_TRANSPORT="api",
+        ),
+        repo_root=tmp_path,
+    )
+
+    assert config.provider == "gemini"
+    assert config.provider_transport == "api"
+
+
+def test_render_call_greeting_announces_model_and_provider(tmp_path: Path) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "gemini", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(
+            workdir,
+            BRIDGE_CLI_PROVIDER="gemini",
+        ),
+        repo_root=tmp_path,
+    )
+
+    assert (
+        render_call_greeting(config)
+        == "You're talking with gemini 2.5 flash through Gemini CLI. "
+        "RepoLine is live. What do you want to work on?"
+    )
+
+
+def test_render_call_greeting_announces_gemini_api_transport(tmp_path: Path) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "gemini", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(
+            workdir,
+            BRIDGE_CLI_PROVIDER="gemini",
+            BRIDGE_GEMINI_TRANSPORT="api",
+        ),
+        repo_root=tmp_path,
+    )
+
+    assert (
+        render_call_greeting(config)
+        == "You're talking with gemini 2.5 flash through Gemini API. "
+        "RepoLine is live. What do you want to work on?"
+    )
+
+
+def test_render_call_greeting_preserves_custom_greeting(tmp_path: Path) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "cursor", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(
+            workdir,
+            BRIDGE_CLI_PROVIDER="cursor",
+            BRIDGE_GREETING="Tell me what you want to change.",
+        ),
+        repo_root=tmp_path,
+    )
+
+    assert (
+        render_call_greeting(config)
+        == "You're talking with composer 2 fast through Cursor Agent. "
+        "Tell me what you want to change."
+    )
+
+
+def test_bridge_config_load_supports_cursor_app_transport(tmp_path: Path) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "cursor", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(
+            workdir,
+            BRIDGE_CLI_PROVIDER="cursor",
+            BRIDGE_CURSOR_TRANSPORT="app",
+        ),
+        repo_root=tmp_path,
+    )
+
+    assert config.provider == "cursor"
+    assert config.provider_transport == "app"
+
+
+def test_render_call_greeting_announces_cursor_app_transport(tmp_path: Path) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "cursor", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(
+            workdir,
+            BRIDGE_CLI_PROVIDER="cursor",
+            BRIDGE_CURSOR_TRANSPORT="app",
+        ),
+        repo_root=tmp_path,
+    )
+
+    assert (
+        render_call_greeting(config)
+        == "You're talking with composer 2 fast through Cursor App. "
+        "RepoLine is live. What do you want to work on?"
+    )
+
+
+def test_bridge_config_load_supports_direct_deepgram_and_elevenlabs(
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "claude", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(
+            workdir,
+            BRIDGE_STT_PROVIDER="deepgram",
+            DEEPGRAM_API_KEY="deepgram-key",
+            DEEPGRAM_STT_MODEL="nova-3",
+            BRIDGE_TTS_PROVIDER="elevenlabs",
+            ELEVENLABS_API_KEY="elevenlabs-key",
+            ELEVENLABS_TTS_MODEL="eleven_flash_v2_5",
+            ELEVENLABS_VOICE_ID="voice-123",
+        ),
+        repo_root=tmp_path,
+    )
+
+    assert config.stt_provider == "deepgram"
+    assert config.stt_model == "nova-3"
+    assert config.tts_provider == "elevenlabs"
+    assert config.tts_model == "eleven_flash_v2_5"
+    assert config.tts_voice == "voice-123"
+
+
+def test_bridge_config_load_requires_direct_provider_credentials(
+    tmp_path: Path,
+) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "claude", "repoline-voice-session")
+
+    with pytest.raises(ValueError, match="DEEPGRAM_API_KEY"):
+        BridgeConfig.load(
+            _base_env(workdir, BRIDGE_STT_PROVIDER="deepgram"),
+            repo_root=tmp_path,
+        )
+
+    with pytest.raises(ValueError, match="ELEVENLABS_API_KEY"):
+        BridgeConfig.load(
+            _base_env(workdir, BRIDGE_TTS_PROVIDER="elevenlabs"),
+            repo_root=tmp_path,
+        )
 
 def test_bridge_config_load_raises_for_invalid_prometheus_port(tmp_path: Path) -> None:
     workdir = tmp_path / "repo"

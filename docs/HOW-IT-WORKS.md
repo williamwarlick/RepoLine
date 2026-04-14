@@ -31,6 +31,13 @@ It does keep a few local runtime artifacts:
 
 The coding CLI remains the source of truth for the actual conversation thread. If you restart the worker, the in-memory resume session identifier is lost and the next turn starts fresh from the bridge side.
 
+Cursor has two distinct conversation stores in practice:
+
+- headless `cursor-agent --resume` can reuse a session id on the CLI side
+- the Cursor desktop app keeps its own local composer state in Cursor's SQLite storage
+
+RepoLine's experimental Cursor app transport reads and follows the desktop app composer state directly. A headless CLI resume does not write new bubbles back into that local app store.
+
 ## Streaming behavior
 
 Different CLIs expose different output surfaces:
@@ -38,6 +45,8 @@ Different CLIs expose different output surfaces:
 - Claude Code currently has the best partial-text path, so speech can usually start before the turn fully completes.
 - Codex resumes threads correctly, but local testing in this repo did not surface token deltas on stdout, so speech usually starts from the final assistant message.
 - Cursor Agent can emit full assistant messages before the turn ends, but its stream is still coarser than Claude's delta stream.
+- Cursor App transport can be faster than headless Cursor because it uses the live desktop session, but it depends on the app being open and focused on the target workspace.
+- Gemini CLI emits simple streaming JSON deltas and tool events, which makes it easy to benchmark and compare against the other provider adapters.
 
 ## User-visible limits
 

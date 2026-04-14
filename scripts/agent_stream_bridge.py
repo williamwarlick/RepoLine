@@ -14,7 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "agent" / "src"))
 
-from model_stream import TextStreamConfig, stream_text_events
+from model_stream import TextStreamConfig, stream_text_events  # noqa: E402
 
 
 def emit(payload: dict) -> None:
@@ -29,7 +29,7 @@ async def main() -> int:
     parser.add_argument("prompt", help="Prompt to send to the configured coding CLI.")
     parser.add_argument(
         "--provider",
-        choices=("claude", "codex", "cursor"),
+        choices=("claude", "codex", "cursor", "gemini"),
         default="claude",
         help="Which coding CLI to run.",
     )

@@ -46,7 +46,15 @@ class CodexProviderStreamAdapter:
         elif config.access_policy == "workspace-write":
             cmd.append("--full-auto")
         else:
-            cmd.extend(["--sandbox", "read-only"])
+            if config.resume_session_id:
+                cmd.extend(
+                    [
+                        "-c",
+                        'sandbox_mode="read-only"',
+                    ]
+                )
+            else:
+                cmd.extend(["--sandbox", "read-only"])
         if config.thinking_level:
             cmd.extend(["-c", f'model_reasoning_effort="{config.thinking_level}"'])
         if config.model:

@@ -5,6 +5,7 @@ import json
 from collections.abc import AsyncIterator
 
 from .common import (
+    DEFAULT_CURSOR_MODEL,
     SentenceChunker,
     TextStreamConfig,
     TextStreamEvent,
@@ -17,22 +18,46 @@ from .common import (
     iter_final_text_artifacts,
     provider_display_name,
 )
+from .cursor_app import CursorAppTransport, build_cursor_app_submit_command
 from .runner import ProcessRunner, terminate_process
+
+READONLY_MODE_HINT = (
+    "Runtime note: this RepoLine session is running in readonly mode. "
+    "You may inspect and explain, but do not make file changes. "
+    "If the user asks for edits, say briefly that this session is readonly."
+)
 
 
 class CursorProviderStreamAdapter:
     provider = "cursor"
 
+    def __init__(
+        self,
+        *,
+        app_transport: CursorAppTransport | None = None,
+    ) -> None:
+        self._app_transport = app_transport or CursorAppTransport()
+
     def build_command(self, config: TextStreamConfig) -> list[str]:
+        if config.provider_transport == "app":
+            return build_cursor_app_submit_command(config)
+
+        system_prompt = config.system_prompt
+        if config.access_policy == "readonly":
+            system_prompt = (
+                f"{system_prompt}\n\n{READONLY_MODE_HINT}"
+                if system_prompt
+                else READONLY_MODE_HINT
+            )
+
         prompt = _embed_prompt_instructions(
             config.prompt,
-            system_prompt=config.system_prompt,
+            system_prompt=system_prompt,
             thinking_level=config.thinking_level,
         )
 
-        cmd = ["cursor-agent", "-p", "--output-format", "stream-json"]
-        if config.access_policy == "readonly":
-            cmd.extend(["--mode", "plan"])
+        cmd = ["cursor-agent", "-p", "--output-format", "stream-json", "--trust"]
+        cmd.append("--stream-partial-output")
         if config.resume_session_id:
             cmd.extend(["--resume", config.resume_session_id])
         if config.access_policy in {"workspace-write", "owner"}:
@@ -42,14 +67,20 @@ class CursorProviderStreamAdapter:
             cmd.append("--approve-mcps")
         else:
             cmd.extend(["--sandbox", "enabled"])
-        if config.model:
-            cmd.extend(["--model", config.model])
+        model = config.model or DEFAULT_CURSOR_MODEL
+        if model:
+            cmd.extend(["--model", model])
         cmd.append(prompt)
         return cmd
 
     async def stream(
         self, config: TextStreamConfig, runner: ProcessRunner
     ) -> AsyncIterator[TextStreamEvent]:
+        if config.provider_transport == "app":
+            async for event in self._app_transport.stream(config):
+                yield event
+            return
+
         chunker = SentenceChunker(config.chunk_chars)
         cmd = self.build_command(config)
         current_session_id = config.resume_session_id
@@ -103,7 +134,9 @@ class CursorProviderStreamAdapter:
                                 artifact=artifact,
                                 session_id=current_session_id,
                             )
-                        text = extract_text_from_content(content)
+                        text = extract_text_from_content(
+                            content, preserve_whitespace=True
+                        )
                     else:
                         text = _extract_text_candidate(message) or ""
                     delta_text = _extract_incremental_text(text, assistant_text)

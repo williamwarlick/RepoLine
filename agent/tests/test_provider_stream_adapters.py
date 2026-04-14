@@ -7,6 +7,8 @@ import pytest
 
 from model_stream import ProviderStreamFacade
 from provider_stream.common import TextStreamConfig, TextStreamError, TextStreamEvent
+from provider_stream.cursor import CursorProviderStreamAdapter
+from provider_stream.gemini import GeminiProviderStreamAdapter
 
 
 class FakeProcess:
@@ -42,6 +44,29 @@ class FakeRunner:
         self.commands.append(cmd)
         self.working_directories.append(working_directory)
         return self.process
+
+
+class FakeGeminiApiTransport:
+    def __init__(self, events: list[dict[str, object]]) -> None:
+        self._events = events
+        self.calls: list[dict[str, object]] = []
+
+    async def stream_generate_content(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        payload: dict[str, object],
+    ) -> AsyncIterator[dict[str, object]]:
+        self.calls.append(
+            {
+                "api_key_present": bool(api_key),
+                "model": model,
+                "payload": payload,
+            }
+        )
+        for event in self._events:
+            yield event
 
 
 async def _collect_events(events: AsyncIterator[TextStreamEvent]) -> list[TextStreamEvent]:
@@ -237,6 +262,105 @@ async def test_cursor_adapter_ignores_replayed_full_text_updates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cursor_adapter_uses_app_transport_when_requested() -> None:
+    class FakeCursorAppTransport:
+        async def stream(self, config: TextStreamConfig) -> AsyncIterator[TextStreamEvent]:
+            yield TextStreamEvent(type="status", message="app")
+            yield TextStreamEvent(type="done", session_id="composer-123")
+
+    facade = ProviderStreamFacade(
+        adapters={
+            "cursor": CursorProviderStreamAdapter(
+                app_transport=FakeCursorAppTransport()
+            ),
+        }
+    )
+
+    events = await _collect_events(
+        facade.events(
+            TextStreamConfig(
+                provider="cursor",
+                provider_transport="app",
+                prompt="Hello",
+            ),
+            runner=FakeRunner(FakeProcess([])),
+        )
+    )
+
+    assert [event.message for event in events if event.type == "status"] == ["app"]
+    assert events[-1].session_id == "composer-123"
+
+
+@pytest.mark.asyncio
+async def test_cursor_adapter_streams_partial_output_fragments_without_duplication() -> None:
+    facade = ProviderStreamFacade()
+    runner = FakeRunner(
+        FakeProcess(
+            [
+                json.dumps(
+                    {
+                        "type": "system",
+                        "subtype": "init",
+                        "session_id": "cursor-session",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "session_id": "cursor-session",
+                        "message": {
+                            "content": [{"type": "text", "text": "Hello"}]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "session_id": "cursor-session",
+                        "message": {
+                            "content": [{"type": "text", "text": " world."}]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "assistant",
+                        "session_id": "cursor-session",
+                        "message": {
+                            "content": [{"type": "text", "text": "Hello world."}]
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "session_id": "cursor-session",
+                        "result": "Hello world.",
+                    }
+                ),
+            ]
+        )
+    )
+
+    events = await _collect_events(
+        facade.events(
+            TextStreamConfig(
+                provider="cursor",
+                prompt="Hello",
+                chunk_chars=100,
+            ),
+            runner=runner,
+        )
+    )
+
+    assert [event.text for event in events if event.type == "speech_chunk"] == [
+        "Hello world."
+    ]
+    assert runner.commands[0].count("--stream-partial-output") == 1
+    assert events[-1].type == "done"
+
+
+@pytest.mark.asyncio
 async def test_cursor_adapter_reports_result_errors() -> None:
     facade = ProviderStreamFacade()
     runner = FakeRunner(
@@ -268,6 +392,123 @@ async def test_cursor_adapter_reports_result_errors() -> None:
     error_events = [event for event in events if event.type == "error"]
     assert len(error_events) == 1
     assert error_events[0].message == "Authentication required"
+
+
+@pytest.mark.asyncio
+async def test_gemini_adapter_streams_deltas_and_tool_artifacts() -> None:
+    facade = ProviderStreamFacade()
+    runner = FakeRunner(
+        FakeProcess(
+            [
+                json.dumps(
+                    {
+                        "type": "init",
+                        "session_id": "gemini-session",
+                        "model": "gemini-2.5-flash",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "tool_use",
+                        "tool_name": "read_file",
+                        "tool_id": "tool-1",
+                        "parameters": {"path": "README.md"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "session_id": "gemini-session",
+                        "content": "RepoLine connects voice calls to local coding CLIs.",
+                        "delta": True,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "session_id": "gemini-session",
+                        "status": "success",
+                    }
+                ),
+            ]
+        )
+    )
+
+    events = await _collect_events(
+        facade.events(
+            TextStreamConfig(
+                provider="gemini",
+                prompt="Hello",
+                chunk_chars=20,
+            ),
+            runner=runner,
+        )
+    )
+
+    assert [event.message for event in events if event.type == "status"] == [
+        "Starting Gemini CLI stream.",
+        "Gemini CLI started a session.",
+    ]
+    assert [event.text for event in events if event.type == "speech_chunk"] == [
+        "RepoLine connects voice calls to local coding CLIs."
+    ]
+    artifacts = [event.artifact for event in events if event.type == "artifact"]
+    assert artifacts[0] is not None
+    assert artifacts[0].title == "read_file"
+    assert artifacts[0].text == '{\n  "path": "README.md"\n}'
+    assert events[-1].type == "done"
+    assert runner.commands[0][0] == "gemini"
+
+
+@pytest.mark.asyncio
+async def test_gemini_adapter_supports_direct_api_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    transport = FakeGeminiApiTransport(
+        [
+            {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [{"text": "Two plus two is four."}],
+                        }
+                    }
+                ]
+            }
+        ]
+    )
+    facade = ProviderStreamFacade(
+        adapters={
+            "gemini": GeminiProviderStreamAdapter(api_transport=transport),
+        }
+    )
+
+    events = await _collect_events(
+        facade.events(
+            TextStreamConfig(
+                provider="gemini",
+                provider_transport="api",
+                prompt="What is two plus two?",
+                chunk_chars=12,
+                system_prompt="Speak briefly.",
+                thinking_level="low",
+            ),
+            runner=FakeRunner(FakeProcess([])),
+        )
+    )
+
+    assert [event.message for event in events if event.type == "status"] == [
+        "Starting Gemini API stream.",
+        "Gemini API accepted the turn.",
+    ]
+    assert [event.text for event in events if event.type == "speech_chunk"] == [
+        "Two plus two is four."
+    ]
+    payload = transport.calls[0]["payload"]
+    assert isinstance(payload, dict)
+    assert payload["generationConfig"] == {"thinkingConfig": {"thinkingBudget": 0}}
+    assert events[-1].type == "done"
+    assert events[-1].session_id is not None
 
 
 @pytest.mark.asyncio

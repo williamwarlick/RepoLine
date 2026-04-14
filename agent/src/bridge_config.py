@@ -10,12 +10,16 @@ from repoline_skill import (
     resolve_repoline_skill_prompt,
 )
 
+DEFAULT_CURSOR_MODEL = "composer-2-fast"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+
 
 @dataclass(frozen=True, slots=True)
 class BridgeConfig:
     agent_name: str
     greeting: str
     provider: str
+    provider_transport: str | None
     skill_name: str
     tts_pronunciation_skill_name: str
     chunk_chars: int
@@ -33,6 +37,7 @@ class BridgeConfig:
     livekit_record_logs: bool
     livekit_record_transcript: bool
     prometheus_port: int | None
+    stt_provider: str
     stt_model: str
     stt_language: str
     turn_endpointing_mode: str
@@ -41,13 +46,14 @@ class BridgeConfig:
     turn_interruption_mode: str
     false_interruption_timeout_seconds: float
     resume_false_interruption: bool
+    tts_provider: str
     tts_model: str
     tts_voice: str
 
     @classmethod
     def load(
         cls, env: Mapping[str, str], repo_root: str | Path
-    ) -> "BridgeConfig":
+    ) -> BridgeConfig:
         root = Path(repo_root).expanduser()
         agent_dir = root / "agent" if (root / "agent").is_dir() else root
 
@@ -66,6 +72,8 @@ class BridgeConfig:
             skill_name=skill_name,
             tts_pronunciation_skill_name=tts_pronunciation_skill_name,
         ).prompt
+        stt_provider = _resolve_stt_provider(env)
+        tts_provider = _resolve_tts_provider(env)
 
         return cls(
             agent_name=env.get("LIVEKIT_AGENT_NAME", "clawdbot-agent"),
@@ -74,10 +82,11 @@ class BridgeConfig:
                 "RepoLine is live. What do you want to work on?",
             ),
             provider=provider,
+            provider_transport=_resolve_provider_transport(env, provider),
             skill_name=skill_name,
             tts_pronunciation_skill_name=tts_pronunciation_skill_name,
-            chunk_chars=int(env.get("BRIDGE_CHUNK_CHARS", "140")),
-            model=_env_optional(env, "BRIDGE_MODEL"),
+            chunk_chars=int(env.get("BRIDGE_CHUNK_CHARS", "80")),
+            model=_resolve_bridge_model(env, provider),
             thinking_level=_resolve_thinking_level(env),
             system_prompt=system_prompt,
             working_directory=working_directory,
@@ -96,13 +105,13 @@ class BridgeConfig:
                 ),
             ),
             final_transcript_debounce_seconds=float(
-                env.get("FINAL_TRANSCRIPT_DEBOUNCE_SECONDS", "0.85")
+                env.get("FINAL_TRANSCRIPT_DEBOUNCE_SECONDS", "0.35")
             ),
             short_transcript_word_threshold=int(
                 env.get("BRIDGE_SHORT_TRANSCRIPT_WORDS", "2")
             ),
             short_transcript_debounce_seconds=float(
-                env.get("BRIDGE_SHORT_TRANSCRIPT_DEBOUNCE_SECONDS", "2.75")
+                env.get("BRIDGE_SHORT_TRANSCRIPT_DEBOUNCE_SECONDS", "0.55")
             ),
             telemetry_jsonl_path=env.get("BRIDGE_TELEMETRY_JSONL")
             or str(agent_dir / "logs" / "bridge-telemetry.jsonl"),
@@ -113,16 +122,17 @@ class BridgeConfig:
                 env, "LIVEKIT_RECORD_TRANSCRIPT", False
             ),
             prometheus_port=_env_int(env, "BRIDGE_PROMETHEUS_PORT"),
-            stt_model=env.get("LIVEKIT_STT_MODEL", "deepgram/nova-3"),
+            stt_provider=stt_provider,
+            stt_model=_resolve_stt_model(env, stt_provider),
             stt_language=env.get("LIVEKIT_STT_LANGUAGE", "multi"),
             turn_endpointing_mode=env.get(
                 "LIVEKIT_TURN_ENDPOINTING_MODE", "dynamic"
             ),
             turn_min_endpointing_delay_seconds=float(
-                env.get("LIVEKIT_TURN_MIN_ENDPOINTING_DELAY_SECONDS", "0.8")
+                env.get("LIVEKIT_TURN_MIN_ENDPOINTING_DELAY_SECONDS", "0.35")
             ),
             turn_max_endpointing_delay_seconds=float(
-                env.get("LIVEKIT_TURN_MAX_ENDPOINTING_DELAY_SECONDS", "2.2")
+                env.get("LIVEKIT_TURN_MAX_ENDPOINTING_DELAY_SECONDS", "1.4")
             ),
             turn_interruption_mode=env.get(
                 "LIVEKIT_TURN_INTERRUPTION_MODE", "adaptive"
@@ -133,16 +143,46 @@ class BridgeConfig:
             resume_false_interruption=_env_bool(
                 env, "LIVEKIT_RESUME_FALSE_INTERRUPTION", True
             ),
-            tts_model=env.get("LIVEKIT_TTS_MODEL", "cartesia/sonic-3"),
-            tts_voice=env.get(
-                "LIVEKIT_TTS_VOICE",
-                "9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-            ),
+            tts_provider=tts_provider,
+            tts_model=_resolve_tts_model(env, tts_provider),
+            tts_voice=_resolve_tts_voice(env, tts_provider),
         )
+
+
+def render_call_greeting(config: BridgeConfig) -> str:
+    provider_name = _provider_display_name(config.provider, config.provider_transport)
+    model_name = _spoken_model_name(config.model)
+    intro = f"You're talking with {model_name} through {provider_name}."
+    greeting = config.greeting.strip()
+    if not greeting:
+        return intro
+    return f"{intro} {greeting}"
 
 
 def _require_env(env: Mapping[str, str], name: str) -> str:
     return env[name]
+
+
+def _provider_display_name(provider: str, transport: str | None = None) -> str:
+    if provider == "claude":
+        return "Claude Code"
+    if provider == "codex":
+        return "Codex CLI"
+    if provider == "cursor":
+        if transport == "app":
+            return "Cursor App"
+        return "Cursor Agent"
+    if provider == "gemini" and transport == "api":
+        return "Gemini API"
+    if provider == "gemini":
+        return "Gemini CLI"
+    return provider
+
+
+def _spoken_model_name(model: str | None) -> str:
+    if model is None or not model.strip():
+        return "the default model"
+    return model.replace("-", " ").replace("_", " ").strip()
 
 
 def _env_bool(env: Mapping[str, str], name: str, default: bool) -> bool:
@@ -179,4 +219,119 @@ def _resolve_thinking_level(env: Mapping[str, str]) -> str | None:
         _env_optional(env, "BRIDGE_THINKING_LEVEL")
         or _env_optional(env, "BRIDGE_CODEX_REASONING_EFFORT")
         or "low"
+    )
+
+
+def _resolve_bridge_model(
+    env: Mapping[str, str], provider: str
+) -> str | None:
+    explicit_model = _env_optional(env, "BRIDGE_MODEL")
+    if explicit_model is not None:
+        return explicit_model
+    if provider == "cursor":
+        return DEFAULT_CURSOR_MODEL
+    if provider == "gemini":
+        return DEFAULT_GEMINI_MODEL
+    return None
+
+
+def _resolve_provider_transport(env: Mapping[str, str], provider: str) -> str | None:
+    if provider == "cursor":
+        value = _env_optional(env, "BRIDGE_CURSOR_TRANSPORT")
+        if value is None:
+            return "cli"
+        normalized = value.lower()
+        if normalized not in {"app", "cli"}:
+            raise ValueError(
+                "BRIDGE_CURSOR_TRANSPORT must be one of: app, cli"
+            )
+        return normalized
+
+    if provider != "gemini":
+        return None
+
+    value = _env_optional(env, "BRIDGE_GEMINI_TRANSPORT")
+    if value is None:
+        return "cli"
+    normalized = value.lower()
+    if normalized not in {"api", "cli"}:
+        raise ValueError(
+            "BRIDGE_GEMINI_TRANSPORT must be one of: api, cli"
+        )
+    return normalized
+
+
+def _normalize_provider_backend(
+    value: str | None, *, default: str, supported: set[str]
+) -> str:
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    aliases = {
+        "inference": "livekit",
+        "livekit-inference": "livekit",
+    }
+    normalized = aliases.get(normalized, normalized)
+    if normalized not in supported:
+        supported_values = ", ".join(sorted(supported))
+        raise ValueError(
+            f"Unsupported provider backend '{value}'. Expected one of: {supported_values}"
+        )
+    return normalized
+
+
+def _resolve_stt_provider(env: Mapping[str, str]) -> str:
+    explicit = _env_optional(env, "BRIDGE_STT_PROVIDER")
+    default = "deepgram" if _env_optional(env, "DEEPGRAM_API_KEY") else "livekit"
+    provider = _normalize_provider_backend(
+        explicit,
+        default=default,
+        supported={"deepgram", "livekit"},
+    )
+    if provider == "deepgram" and _env_optional(env, "DEEPGRAM_API_KEY") is None:
+        raise ValueError(
+            "DEEPGRAM_API_KEY is required when BRIDGE_STT_PROVIDER=deepgram"
+        )
+    return provider
+
+
+def _resolve_tts_provider(env: Mapping[str, str]) -> str:
+    explicit = _env_optional(env, "BRIDGE_TTS_PROVIDER")
+    default = "elevenlabs" if _env_optional(env, "ELEVENLABS_API_KEY") else "livekit"
+    provider = _normalize_provider_backend(
+        explicit,
+        default=default,
+        supported={"elevenlabs", "livekit"},
+    )
+    if provider == "elevenlabs" and _env_optional(env, "ELEVENLABS_API_KEY") is None:
+        raise ValueError(
+            "ELEVENLABS_API_KEY is required when BRIDGE_TTS_PROVIDER=elevenlabs"
+        )
+    return provider
+
+
+def _resolve_stt_model(env: Mapping[str, str], provider: str) -> str:
+    if provider == "deepgram":
+        return env.get("DEEPGRAM_STT_MODEL", "nova-3")
+    return env.get("LIVEKIT_STT_MODEL", "deepgram/nova-3")
+
+
+def _resolve_tts_model(env: Mapping[str, str], provider: str) -> str:
+    if provider == "elevenlabs":
+        return env.get("ELEVENLABS_TTS_MODEL", "eleven_flash_v2_5")
+    return env.get("LIVEKIT_TTS_MODEL", "cartesia/sonic-3")
+
+
+def _resolve_tts_voice(env: Mapping[str, str], provider: str) -> str:
+    if provider == "elevenlabs":
+        voice_id = _env_optional(env, "ELEVENLABS_VOICE_ID")
+        if voice_id is None:
+            raise ValueError(
+                "ELEVENLABS_VOICE_ID is required when BRIDGE_TTS_PROVIDER=elevenlabs"
+            )
+        return voice_id
+
+    return env.get(
+        "LIVEKIT_TTS_VOICE",
+        "9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
     )

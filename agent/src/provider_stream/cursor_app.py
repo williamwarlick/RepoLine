@@ -1,0 +1,267 @@
+from __future__ import annotations
+
+import asyncio
+import os
+import sys
+import time
+from collections.abc import AsyncIterator, Callable
+from pathlib import Path
+from typing import Any, Protocol
+
+from cursor_app_submit import (
+    DEFAULT_CURSOR_APP_COMMAND_TITLE,
+    CursorAppSubmitError,
+    CursorAppSubmitResult,
+    submit_prompt_to_cursor_app,
+)
+from cursor_app_tap import (
+    CursorBubbleUpdate,
+    CursorComposerTail,
+    find_active_composer_id,
+    load_bubbles,
+    load_composer_data,
+)
+
+from .common import (
+    SentenceChunker,
+    TextStreamConfig,
+    TextStreamError,
+    TextStreamEvent,
+    UiArtifact,
+    iter_final_text_artifacts,
+    provider_display_name,
+)
+
+APP_STREAM_POLL_INTERVAL_SECONDS = 0.02
+APP_SETTLE_DELAY_SECONDS = 0.05
+APP_RESPONSE_TIMEOUT_SECONDS = 45.0
+REPOLINE_ROOT = Path(__file__).resolve().parents[3]
+
+
+class CursorAppSubmitter(Protocol):
+    async def submit(
+        self,
+        *,
+        workspace_root: str | Path,
+        prompt: str,
+        command_title: str,
+    ) -> CursorAppSubmitResult: ...
+
+
+class CursorComposerTailProtocol(Protocol):
+    def seed_known_bubbles(self, bubbles: list[Any]) -> None: ...
+
+    def snapshot_updates(
+        self, *, include_existing: bool = False
+    ) -> list[CursorBubbleUpdate]: ...
+
+
+class DefaultCursorAppSubmitter:
+    async def submit(
+        self,
+        *,
+        workspace_root: str | Path,
+        prompt: str,
+        command_title: str,
+    ) -> CursorAppSubmitResult:
+        return await submit_prompt_to_cursor_app(
+            workspace_root=workspace_root,
+            prompt=prompt,
+            command_title=command_title,
+        )
+
+
+def build_cursor_app_submit_command(config: TextStreamConfig) -> list[str]:
+    workspace_root = config.working_directory or os.getcwd()
+    script_path = REPOLINE_ROOT / "scripts" / "cursor_app_submit.py"
+    return [
+        sys.executable,
+        str(script_path),
+        "--workspace",
+        str(Path(workspace_root).expanduser().resolve()),
+        "--command-title",
+        DEFAULT_CURSOR_APP_COMMAND_TITLE,
+        "--prompt",
+        _build_cursor_app_prompt(config),
+    ]
+
+
+class CursorAppTransport:
+    def __init__(
+        self,
+        *,
+        submitter: CursorAppSubmitter | None = None,
+        composer_id_resolver: Callable[[str | Path], str] = find_active_composer_id,
+        tail_factory: Callable[[str], CursorComposerTailProtocol] | None = None,
+        bubble_loader: Callable[[str], list[Any]] = load_bubbles,
+        composer_loader: Callable[[str], dict[str, Any]] = load_composer_data,
+        poll_interval_seconds: float = APP_STREAM_POLL_INTERVAL_SECONDS,
+        settle_delay_seconds: float = APP_SETTLE_DELAY_SECONDS,
+        response_timeout_seconds: float = APP_RESPONSE_TIMEOUT_SECONDS,
+    ) -> None:
+        self._submitter = submitter or DefaultCursorAppSubmitter()
+        self._composer_id_resolver = composer_id_resolver
+        self._tail_factory = tail_factory or (lambda composer_id: CursorComposerTail(composer_id))
+        self._bubble_loader = bubble_loader
+        self._composer_loader = composer_loader
+        self._poll_interval_seconds = poll_interval_seconds
+        self._settle_delay_seconds = settle_delay_seconds
+        self._response_timeout_seconds = response_timeout_seconds
+
+    async def stream(self, config: TextStreamConfig) -> AsyncIterator[TextStreamEvent]:
+        provider_name = provider_display_name("cursor", transport="app")
+        workspace_root = str(Path(config.working_directory or os.getcwd()).expanduser().resolve())
+        prompt = _build_cursor_app_prompt(config)
+        requested_composer_id = (
+            config.resume_session_id
+            or config.session_id
+            or self._composer_id_resolver(workspace_root)
+        )
+        known_bubbles = []
+        if requested_composer_id:
+            try:
+                known_bubbles = self._bubble_loader(requested_composer_id)
+            except Exception:
+                known_bubbles = []
+        chunker = SentenceChunker(config.chunk_chars)
+        assistant_text = ""
+        last_activity_at = time.monotonic()
+        saw_assistant = False
+
+        yield TextStreamEvent(
+            type="status",
+            message=f"Starting {provider_name} stream.",
+            session_id=requested_composer_id,
+        )
+
+        try:
+            submit_result = await self._submitter.submit(
+                workspace_root=workspace_root,
+                prompt=prompt,
+                command_title=DEFAULT_CURSOR_APP_COMMAND_TITLE,
+            )
+        except CursorAppSubmitError as exc:
+            raise TextStreamError(str(exc)) from exc
+
+        composer_id = submit_result.composer_id
+        tail = self._tail_factory(composer_id)
+        if composer_id == requested_composer_id and known_bubbles:
+            tail.seed_known_bubbles(known_bubbles)
+
+        yield TextStreamEvent(
+            type="status",
+            message=f"{provider_name} submitted the turn.",
+            session_id=composer_id,
+        )
+
+        while True:
+            updates = tail.snapshot_updates(include_existing=not saw_assistant)
+            if updates:
+                last_activity_at = time.monotonic()
+
+            for update in updates:
+                bubble = update.bubble
+                if bubble.role != "assistant":
+                    continue
+
+                if bubble.is_tool_event:
+                    artifact = _tool_artifact_from_bubble(bubble.raw)
+                    if artifact is not None:
+                        yield TextStreamEvent(
+                            type="artifact",
+                            artifact=artifact,
+                            session_id=composer_id,
+                        )
+                    continue
+
+                delta_text = update.delta_text or bubble.text
+                if not delta_text:
+                    continue
+
+                saw_assistant = True
+                assistant_text += delta_text
+                for chunk in chunker.feed(delta_text):
+                    yield TextStreamEvent(
+                        type="speech_chunk",
+                        text=chunk,
+                        final=False,
+                        session_id=composer_id,
+                    )
+
+            try:
+                composer_data = self._composer_loader(composer_id)
+            except Exception as exc:
+                raise TextStreamError(
+                    f"{provider_name} could not read composer state."
+                ) from exc
+            status = str(composer_data.get("status") or "").strip().lower()
+            generating = composer_data.get("generatingBubbleIds")
+            is_settled = status == "completed" and not generating
+
+            if (
+                saw_assistant
+                and is_settled
+                and time.monotonic() - last_activity_at >= self._settle_delay_seconds
+            ):
+                for chunk in chunker.flush():
+                    yield TextStreamEvent(
+                        type="speech_chunk",
+                        text=chunk,
+                        final=True,
+                        session_id=composer_id,
+                    )
+                for artifact in iter_final_text_artifacts(
+                    assistant_text,
+                    artifact_id_prefix=f"cursor-app:{composer_id}:assistant",
+                ):
+                    yield TextStreamEvent(
+                        type="artifact",
+                        artifact=artifact,
+                        session_id=composer_id,
+                    )
+                yield TextStreamEvent(
+                    type="done",
+                    exit_code=0,
+                    session_id=composer_id,
+                )
+                return
+
+            if not saw_assistant and time.monotonic() - last_activity_at >= self._response_timeout_seconds:
+                raise TextStreamError(
+                    f"{provider_name} did not produce assistant output within {self._response_timeout_seconds:.0f} seconds."
+                )
+
+            await asyncio.sleep(self._poll_interval_seconds)
+
+
+def _build_cursor_app_prompt(config: TextStreamConfig) -> str:
+    prompt = config.prompt.strip()
+    if config.access_policy != "readonly":
+        return prompt
+    return (
+        "Readonly session. Do not edit files. If asked, say this session is readonly.\n\n"
+        f"{prompt}"
+    )
+
+
+def _tool_artifact_from_bubble(raw: dict[str, Any]) -> UiArtifact | None:
+    tool_data = raw.get("toolFormerData")
+    if not isinstance(tool_data, dict):
+        return None
+
+    client_side_tool = tool_data.get("clientSideTool")
+    tool_name = str(client_side_tool or tool_data.get("name") or "Tool").strip()
+    tool_name = tool_name.replace("_", " ").replace("-", " ").title()
+
+    params = tool_data.get("params")
+    if isinstance(params, dict) and params:
+        text = "\n".join(f"{key}: {value}" for key, value in sorted(params.items()))
+    else:
+        text = ""
+
+    return UiArtifact(
+        kind="tool",
+        title=tool_name or "Tool",
+        text=text,
+        artifact_id=str(raw.get("bubbleId") or ""),
+    )

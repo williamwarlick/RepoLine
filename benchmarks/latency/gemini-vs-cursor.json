@@ -1,0 +1,59 @@
+{
+  "defaults": {
+    "working_directory": ".",
+    "access_policy": "readonly",
+    "chunk_chars": 80,
+    "use_repoline_prompt": true,
+    "thinking_level": "low"
+  },
+  "scenarios": [
+    {
+      "name": "cursor-composer-hi",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "model": "composer-2-fast",
+      "prompt": "Say hi in one short sentence.",
+      "repeats": 2
+    },
+    {
+      "name": "gemini-25-flash-hi",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "prompt": "Say hi in one short sentence.",
+      "repeats": 2
+    },
+    {
+      "name": "gemini-3-flash-preview-hi",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "model": "gemini-3-flash-preview",
+      "prompt": "Say hi in one short sentence.",
+      "repeats": 2
+    },
+    {
+      "name": "cursor-composer-one-line",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "model": "composer-2-fast",
+      "prompt": "What does RepoLine do in one short sentence?",
+      "repeats": 2
+    },
+    {
+      "name": "gemini-25-flash-one-line",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "prompt": "What does RepoLine do in one short sentence?",
+      "repeats": 2
+    },
+    {
+      "name": "gemini-3-flash-preview-one-line",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "model": "gemini-3-flash-preview",
+      "prompt": "What does RepoLine do in one short sentence?",
+      "repeats": 2
+    }
+  ]
+}

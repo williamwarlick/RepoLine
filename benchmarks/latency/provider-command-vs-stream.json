@@ -1,0 +1,40 @@
+{
+  "defaults": {
+    "working_directory": ".",
+    "access_policy": "readonly",
+    "chunk_chars": 80,
+    "use_repoline_prompt": true,
+    "thinking_level": "low",
+    "repeats": 1
+  },
+  "scenarios": [
+    {
+      "name": "cursor-stream-hi",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "model": "composer-2-fast",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "cursor-command-hi",
+      "kind": "provider_command",
+      "provider": "cursor",
+      "model": "composer-2-fast",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "gemini-stream-hi",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "gemini-command-hi",
+      "kind": "provider_command",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "prompt": "Say hi in one short sentence."
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "repoline-cursor-app-bridge",
+  "displayName": "RepoLine Cursor App Bridge",
+  "description": "Local bridge for submitting prompts into Cursor composer threads from RepoLine.",
+  "version": "0.0.1",
+  "publisher": "repoline",
+  "engines": {
+    "vscode": "^1.94.0"
+  },
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "repoline.cursorAppBridge.showStatus",
+        "title": "RepoLine: Show Cursor App Bridge Status"
+      }
+    ]
+  }
+}

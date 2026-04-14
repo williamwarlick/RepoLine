@@ -129,6 +129,10 @@ export function formatArtifactProvider(provider?: string): string | null {
     return 'Cursor';
   }
 
+  if (provider === 'gemini') {
+    return 'Gemini';
+  }
+
   return provider;
 }
 

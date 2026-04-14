@@ -53,6 +53,7 @@ MonotonicFn = Callable[[], float]
 @dataclass(frozen=True, slots=True)
 class TurnCoordinatorConfig:
     provider: str
+    provider_transport: str | None
     chunk_chars: int
     model: str | None
     thinking_level: str | None
@@ -67,6 +68,7 @@ class TurnCoordinatorConfig:
     def from_bridge_config(cls, config: BridgeConfig) -> TurnCoordinatorConfig:
         return cls(
             provider=config.provider,
+            provider_transport=config.provider_transport,
             chunk_chars=config.chunk_chars,
             model=config.model,
             thinking_level=config.thinking_level,
@@ -214,6 +216,7 @@ class TurnCoordinator:
         config = TextStreamConfig(
             prompt=user_text,
             provider=self._config.provider,
+            provider_transport=self._config.provider_transport,
             session_id=stream_session_id,
             resume_session_id=self._last_completed_stream_session_id,
             system_prompt=self._config.system_prompt,
@@ -326,7 +329,6 @@ class TurnCoordinator:
                 )
 
             return None
-
         try:
             first_chunk = None
             async for event in event_stream:

@@ -2,9 +2,9 @@
 
 ## Development flow
 
-1. Run `./scripts/bootstrap.sh` on a fresh machine to install `bun`, `uv`, `lk`, and a supported coding CLI when needed.
+1. Install `bun` if it is missing.
 2. Run `bun run setup` once to generate local env files, link LiveKit, and install dependencies.
-   For scripted setup or smoke tests, pass `-- --no-start --provider <name> --project <name> --workdir <path> --agent-name <name> --skip-phone`.
+   For scripted setup or smoke tests, pass `-- --provider <name> --project <name> --workdir <path> --agent-name <name> --skip-phone`.
 3. Run `bun run doctor` to confirm the local CLI, `lk`, `uv`, and `bun` are available.
 4. Use `bun run dev` for the combined frontend + agent development loop.
 

@@ -4,7 +4,7 @@
 
 <p align="center">
   <strong>A voice bridge for CLI coding agents.</strong><br />
-  Call Claude Code, Codex, Cursor, and other local coding CLIs from your phone or browser.
+  Call Claude Code, Codex, Cursor, Gemini, and other local coding CLIs from your phone or browser.
 </p>
 
 <p align="center">
@@ -26,29 +26,18 @@ Model inference still happens wherever your chosen coding CLI normally sends it.
 
 Prerequisites:
 
-- `claude`, `codex`, or `cursor-agent` for the coding CLI you want to bridge
-- `bun`, `uv`, and `lk`
-
-Fresh machine?
+- `claude`, `codex`, `cursor-agent`, or `gemini` for the coding CLI you want to bridge
+- `bun`
 
 ```bash
-./scripts/bootstrap.sh
-```
-
-The bootstrap script can install `bun`, `uv`, `lk`, and one supported coding CLI for you.
-
-Run:
-
-```bash
-./scripts/bootstrap.sh
 bun run setup
 bun run doctor
 bun run live
 ```
 
-`bun run setup` can install missing local tools, run `lk cloud auth`, add a LiveKit project manually, write the local env files, install dependencies, install the RepoLine voice skill into the target repo, and wire phone access. If the project does not have an active LiveKit number yet, setup can search for a US local number and purchase it from the CLI before it creates the dispatch rule.
-Use `bun run setup -- --no-start` if you want to configure RepoLine without immediately launching the live worker and frontend.
+`bun run setup` installs the local RepoLine configuration and dependencies, but it does not start the worker or frontend. It can install missing local tools, run `lk cloud auth`, add a LiveKit project manually, write the local env files, install dependencies, install the RepoLine voice skill into the target repo, and wire phone access. If the project does not have an active LiveKit number yet, setup can search for a US local number and purchase it from the CLI before it creates the dispatch rule.
 For scripted onboarding and smoke tests, setup also accepts `--provider`, `--project`, `--workdir`, `--agent-name`, and `--skip-phone`.
+`./scripts/bootstrap.sh` is still available if you want RepoLine to install `bun`, `uv`, `lk`, and a supported coding CLI for you, or if you need to repair one missing tool later.
 
 ## Run Modes
 
@@ -59,7 +48,9 @@ For scripted onboarding and smoke tests, setup also accepts `--provider`, `--pro
 ## What RepoLine Does
 
 - connects browser sessions or phone calls to a local coding CLI workdir
-- supports `claude`, `codex`, and `cursor`
+- supports `claude`, `codex`, `cursor`, and `gemini`
+- supports an experimental `Cursor App` transport with `BRIDGE_CURSOR_TRANSPORT=app` for faster app-backed Cursor turns
+- supports a direct `Gemini API` transport for fast voice conversations when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is available
 - speaks streamed output as soon as the provider gives usable text
 - supports browser chat input alongside voice
 - publishes repo artifacts into the browser transcript when the bridge emits them
@@ -81,8 +72,51 @@ See [SECURITY.md](./SECURITY.md) before exposing RepoLine outside your laptop or
 - [Docs index](./docs/README.md)
 - [How it works](./docs/HOW-IT-WORKS.md)
 - [Phone access](./docs/PHONE.md)
+- [Latency notes](./docs/LATENCY.md)
 - [Costs and limits](./docs/COSTS.md)
 - [Security policy](./SECURITY.md)
+
+## Latency Harness
+
+Use the latency harness to compare RepoLine's bridge path against raw `cursor-agent` command shapes with the same prompt and config.
+
+```bash
+bun run benchmark:latency benchmarks/latency/cursor-realtime.json
+```
+
+The sample plan in [`benchmarks/latency/cursor-realtime.json`](./benchmarks/latency/cursor-realtime.json) compares:
+
+- the full RepoLine provider-stream path
+- the exact command RepoLine would build for Cursor
+- the same Cursor config without the RepoLine voice prompt
+- a bare direct `cursor-agent` command
+
+For Cursor specifically, there are now two different paths:
+
+- `BRIDGE_CURSOR_TRANSPORT=cli`: headless `cursor-agent`
+- `BRIDGE_CURSOR_TRANSPORT=app`: submit into the open Cursor app and read replies from the app's local composer state
+
+The app transport is the closest local path to the fast in-app experience, but it depends on a live Cursor desktop session for the target workspace.
+
+You can also save machine-readable results:
+
+```bash
+uv run --project agent python ./scripts/latency_harness.py \
+  benchmarks/latency/cursor-realtime.json \
+  --json-out output/latency/cursor-realtime.json
+```
+
+For the current Cursor-versus-Gemini Flash comparison:
+
+```bash
+bun run benchmark:latency benchmarks/latency/gemini-vs-cursor.json
+```
+
+To isolate raw provider command latency versus the full speech path:
+
+```bash
+bun run benchmark:latency benchmarks/latency/provider-command-vs-stream.json
+```
 
 ## License
 

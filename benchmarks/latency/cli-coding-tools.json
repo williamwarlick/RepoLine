@@ -1,0 +1,189 @@
+{
+  "defaults": {
+    "working_directory": ".",
+    "access_policy": "readonly",
+    "chunk_chars": 80,
+    "repeats": 1,
+    "timeout_seconds": 45
+  },
+  "scenarios": [
+    {
+      "name": "cursor-composer2-trivial",
+      "kind": "cursor_command",
+      "provider": "cursor",
+      "prompt": "What is two plus two? Reply with one short sentence.",
+      "command": [
+        "cursor-agent",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--stream-partial-output",
+        "--trust",
+        "--sandbox",
+        "enabled",
+        "--model",
+        "composer-2-fast",
+        "What is two plus two? Reply with one short sentence."
+      ]
+    },
+    {
+      "name": "cursor-composer2-repo",
+      "kind": "cursor_command",
+      "provider": "cursor",
+      "prompt": "What does RepoLine do? Reply with one short sentence.",
+      "command": [
+        "cursor-agent",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--stream-partial-output",
+        "--trust",
+        "--sandbox",
+        "enabled",
+        "--model",
+        "composer-2-fast",
+        "What does RepoLine do? Reply with one short sentence."
+      ]
+    },
+    {
+      "name": "claude-sonnet-trivial",
+      "kind": "provider_command",
+      "provider": "claude",
+      "prompt": "What is two plus two? Reply with one short sentence.",
+      "command": [
+        "claude",
+        "-p",
+        "--verbose",
+        "--output-format=stream-json",
+        "--include-partial-messages",
+        "--permission-mode",
+        "plan",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+        "What is two plus two? Reply with one short sentence."
+      ]
+    },
+    {
+      "name": "claude-sonnet-bare-trivial",
+      "kind": "provider_command",
+      "provider": "claude",
+      "prompt": "What is two plus two? Reply with one short sentence.",
+      "command": [
+        "claude",
+        "-p",
+        "--bare",
+        "--verbose",
+        "--output-format=stream-json",
+        "--include-partial-messages",
+        "--permission-mode",
+        "plan",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+        "What is two plus two? Reply with one short sentence."
+      ]
+    },
+    {
+      "name": "claude-sonnet-repo",
+      "kind": "provider_command",
+      "provider": "claude",
+      "prompt": "What does RepoLine do? Reply with one short sentence.",
+      "command": [
+        "claude",
+        "-p",
+        "--verbose",
+        "--output-format=stream-json",
+        "--include-partial-messages",
+        "--permission-mode",
+        "plan",
+        "--model",
+        "sonnet",
+        "--effort",
+        "low",
+        "What does RepoLine do? Reply with one short sentence."
+      ]
+    },
+    {
+      "name": "codex-default-trivial",
+      "kind": "provider_command",
+      "provider": "codex",
+      "prompt": "What is two plus two? Reply with one short sentence.",
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--color",
+        "never",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
+        "-c",
+        "model_reasoning_effort=\"low\"",
+        "What is two plus two? Reply with one short sentence."
+      ]
+    },
+    {
+      "name": "codex-default-repo",
+      "kind": "provider_command",
+      "provider": "codex",
+      "prompt": "What does RepoLine do? Reply with one short sentence.",
+      "command": [
+        "codex",
+        "exec",
+        "--json",
+        "--color",
+        "never",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
+        "-c",
+        "model_reasoning_effort=\"low\"",
+        "What does RepoLine do? Reply with one short sentence."
+      ]
+    },
+    {
+      "name": "gemini-cli-trivial",
+      "kind": "provider_command",
+      "provider": "gemini",
+      "prompt": "What is two plus two? Reply with one short sentence.",
+      "command": [
+        "gemini",
+        "--output-format",
+        "stream-json",
+        "-m",
+        "gemini-2.5-flash",
+        "-p",
+        "What is two plus two? Reply with one short sentence."
+      ]
+    },
+    {
+      "name": "gemini-cli-repo",
+      "kind": "provider_command",
+      "provider": "gemini",
+      "prompt": "What does RepoLine do? Reply with one short sentence.",
+      "command": [
+        "gemini",
+        "--output-format",
+        "stream-json",
+        "-m",
+        "gemini-2.5-flash",
+        "-p",
+        "What does RepoLine do? Reply with one short sentence."
+      ]
+    },
+    {
+      "name": "openclaw-minimax-trivial",
+      "kind": "provider_command",
+      "provider": "openclaw",
+      "prompt": "What is two plus two? Reply with one short sentence.",
+      "command": [
+        "zsh",
+        "-lc",
+        "set -a && source /Users/wwarlick/.openclaw/.env && set +a && openclaw --no-color agent --local --agent main --message 'What is two plus two? Reply with one short sentence.' --thinking minimal --verbose on --timeout 60"
+      ]
+    }
+  ]
+}

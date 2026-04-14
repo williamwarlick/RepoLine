@@ -1,0 +1,62 @@
+{
+  "defaults": {
+    "working_directory": ".",
+    "access_policy": "readonly",
+    "chunk_chars": 140,
+    "use_repoline_prompt": true
+  },
+  "scenarios": [
+    {
+      "name": "cursor-hi",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "model": "composer-2-fast",
+      "thinking_level": "low",
+      "prompt": "Say hi in one short sentence.",
+      "repeats": 2
+    },
+    {
+      "name": "codex-default-hi",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "thinking_level": "low",
+      "prompt": "Say hi in one short sentence.",
+      "repeats": 2
+    },
+    {
+      "name": "codex-gpt5codex-hi",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "model": "gpt-5-codex",
+      "thinking_level": "low",
+      "prompt": "Say hi in one short sentence.",
+      "repeats": 2
+    },
+    {
+      "name": "cursor-one-line",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "model": "composer-2-fast",
+      "thinking_level": "low",
+      "prompt": "What does RepoLine do in one short sentence?",
+      "repeats": 2
+    },
+    {
+      "name": "codex-default-one-line",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "thinking_level": "low",
+      "prompt": "What does RepoLine do in one short sentence?",
+      "repeats": 2
+    },
+    {
+      "name": "codex-gpt5codex-one-line",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "model": "gpt-5-codex",
+      "thinking_level": "low",
+      "prompt": "What does RepoLine do in one short sentence?",
+      "repeats": 2
+    }
+  ]
+}

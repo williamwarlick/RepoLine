@@ -75,7 +75,6 @@ export type SearchablePhoneNumberRecord = {
 type BridgeCommand = 'setup' | 'dev' | 'live' | 'agent' | 'doctor';
 
 type SetupCommandOptions = {
-  startLiveAfterSetup: boolean;
   bridgeProvider?: BridgeProvider;
   livekitProjectName?: string;
   workdir?: string;
@@ -113,6 +112,7 @@ const DEFAULT_FRONTEND_HOST = '127.0.0.1';
 const PHONE_NUMBER_STATUS_ACTIVE = 'PHONE_NUMBER_STATUS_ACTIVE';
 const LIVEKIT_PHONE_NUMBER_GUIDANCE_DATE = 'April 11, 2026';
 const BOOTSTRAP_SCRIPT_PATH = join(REPO_ROOT, 'scripts', 'bootstrap.sh');
+const GEMINI_OAUTH_CREDS_PATH = join(process.env.HOME ?? '~', '.gemini', 'oauth_creds.json');
 
 class BridgeCliError extends Error {}
 
@@ -128,8 +128,7 @@ function printHelp(): void {
       `Usage: bun run ${basename(__filename)} <setup|dev|live|agent|doctor> [options]`,
       '',
       'Setup options:',
-      '  --no-start              Configure RepoLine without launching live mode',
-      '  --provider <name>       Choose claude, codex, or cursor',
+      '  --provider <name>       Choose claude, codex, cursor, or gemini',
       '  --project <name>        Use a specific linked LiveKit project',
       '  --workdir <path>        Set the coding CLI workdir without prompting',
       '  --agent-name <name>     Set the LiveKit agent name without prompting',
@@ -138,20 +137,15 @@ function printHelp(): void {
   );
 }
 
-export function parseCliArgs(argv: string[], env: NodeJS.ProcessEnv = process.env): ParsedCliArgs {
+export function parseCliArgs(argv: string[]): ParsedCliArgs {
   const [commandRaw, ...rest] = argv;
   const command = isBridgeCommand(commandRaw) ? commandRaw : null;
-  const setupOptions: SetupCommandOptions = {
-    startLiveAfterSetup: (env.REPOLINE_SETUP_SKIP_LIVE ?? '').trim() !== '1',
-  };
+  const setupOptions: SetupCommandOptions = {};
 
   if (command === 'setup') {
     for (let index = 0; index < rest.length; index += 1) {
       const arg = rest[index];
       switch (arg) {
-        case '--no-start':
-          setupOptions.startLiveAfterSetup = false;
-          break;
         case '--skip-phone':
           setupOptions.setupPhone = false;
           break;
@@ -203,6 +197,9 @@ function parseBridgeProviderFlag(value: string): BridgeProvider {
   }
   if (normalized === 'cursor' || normalized === 'cursor-agent') {
     return 'cursor';
+  }
+  if (normalized === 'gemini') {
+    return 'gemini';
   }
   throw new BridgeCliError(`unsupported --provider value: ${value}`);
 }
@@ -285,8 +282,12 @@ async function setupCommand(options?: SetupCommandOptions): Promise<void> {
       agentEnv.BRIDGE_WORKDIR ?? existingState?.workdir ?? null,
       options?.workdir
     );
-    const ttsModel = agentEnv.LIVEKIT_TTS_MODEL ?? 'cartesia/sonic-3';
-    const ttsVoice = agentEnv.LIVEKIT_TTS_VOICE ?? '9626c31c-bec5-4cca-baa8-f8ba9e84c8bc';
+    const ttsModel =
+      agentEnv.ELEVENLABS_TTS_MODEL ?? agentEnv.LIVEKIT_TTS_MODEL ?? 'cartesia/sonic-3';
+    const ttsVoice =
+      agentEnv.ELEVENLABS_VOICE_ID ??
+      agentEnv.LIVEKIT_TTS_VOICE ??
+      '9626c31c-bec5-4cca-baa8-f8ba9e84c8bc';
     const bridgeContract = createBridgeInstallationContract({
       repoRoot: REPO_ROOT,
       provider: bridgeProvider,
@@ -363,16 +364,10 @@ async function setupCommand(options?: SetupCommandOptions): Promise<void> {
     if (phoneConfig) {
       note(formatPhoneInstructions(phoneConfig), 'Call In');
     }
-    if (options?.startLiveAfterSetup === false) {
-      outro('Setup complete. Live mode was skipped because --no-start was set.');
-      return;
-    }
-    outro('Starting RepoLine live...');
+    outro('Setup complete. Run `bun run live` when you are ready to start RepoLine.');
   } finally {
     ui.close();
   }
-
-  await liveCommand();
 }
 
 async function devCommand(): Promise<void> {
@@ -1617,7 +1612,7 @@ async function selectBridgeProvider(
   const provider = normalizeBridgeProvider(
     agentEnv.BRIDGE_CLI_PROVIDER ?? existingState?.bridge_provider ?? 'claude'
   );
-  const installedProviders = (['claude', 'codex', 'cursor'] as const).filter((candidate) =>
+  const installedProviders = (['claude', 'codex', 'cursor', 'gemini'] as const).filter((candidate) =>
     Boolean(Bun.which(providerExecutable(candidate)))
   );
   if (!agentEnv.BRIDGE_CLI_PROVIDER && !existingState?.bridge_provider && installedProviders.length === 1) {
@@ -1640,11 +1635,15 @@ async function selectBridgeProvider(
       label: 'Cursor Agent',
       hint: 'Uses cursor-agent auth and installs the rule into .cursor/rules',
     },
+    {
+      label: 'Gemini CLI',
+      hint: 'Uses gemini auth and links the skill into .agents/skills',
+    },
   ];
   const selection = await ui.selectOption(
     'Choose the coding CLI',
     options,
-    provider === 'claude' ? 0 : provider === 'codex' ? 1 : 2
+    provider === 'claude' ? 0 : provider === 'codex' ? 1 : provider === 'cursor' ? 2 : 3
   );
   if (selection === 0) {
     return 'claude';
@@ -1652,7 +1651,10 @@ async function selectBridgeProvider(
   if (selection === 1) {
     return 'codex';
   }
-  return 'cursor';
+  if (selection === 2) {
+    return 'cursor';
+  }
+  return 'gemini';
 }
 
 function formatBridgeProvider(provider: BridgeProvider): string {
@@ -1662,12 +1664,18 @@ function formatBridgeProvider(provider: BridgeProvider): string {
   if (provider === 'cursor') {
     return 'Cursor Agent';
   }
+  if (provider === 'gemini') {
+    return 'Gemini CLI';
+  }
   return 'Claude Code';
 }
 
 function providerExecutable(provider: BridgeProvider): string {
   if (provider === 'cursor') {
     return 'cursor-agent';
+  }
+  if (provider === 'gemini') {
+    return 'gemini';
   }
   return provider;
 }
@@ -1679,6 +1687,9 @@ function bridgeAuthCommand(provider: BridgeProvider): string[] {
   if (provider === 'cursor') {
     return ['cursor-agent', 'status'];
   }
+  if (provider === 'gemini') {
+    return ['gemini', 'skills', 'list', '--all'];
+  }
   return ['claude', 'auth', 'status'];
 }
 
@@ -1689,10 +1700,27 @@ function bridgeLoginCommand(provider: BridgeProvider): string[] {
   if (provider === 'cursor') {
     return ['cursor-agent', 'login'];
   }
+  if (provider === 'gemini') {
+    return ['gemini'];
+  }
   return ['claude', 'auth', 'login'];
 }
 
 function getProviderAuthStatus(provider: BridgeProvider): { ok: boolean; detail: string } {
+  if (provider === 'gemini') {
+    if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
+      return { ok: true, detail: 'API key detected in environment' };
+    }
+    if (existsSync(GEMINI_OAUTH_CREDS_PATH)) {
+      return { ok: true, detail: GEMINI_OAUTH_CREDS_PATH };
+    }
+    return {
+      ok: false,
+      detail:
+        'No Gemini credentials detected. Run `gemini` once to complete OAuth, or set GEMINI_API_KEY / GOOGLE_API_KEY.',
+    };
+  }
+
   try {
     const result = runChecked(bridgeAuthCommand(provider), {
       cwd: REPO_ROOT,
@@ -1742,6 +1770,10 @@ async function ensureProviderAuthenticated(
   const status = getProviderAuthStatus(provider);
   if (status.ok) {
     return;
+  }
+
+  if (provider === 'gemini') {
+    throw new BridgeCliError(status.detail);
   }
 
   note(

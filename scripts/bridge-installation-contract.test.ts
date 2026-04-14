@@ -82,6 +82,45 @@ test('bridge installation contract materializes cursor rules into the configured
   }
 });
 
+test('bridge installation contract materializes Gemini skills into the configured workdir', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bridge-contract-gemini-'));
+
+  try {
+    const workdir = join(dir, 'repo');
+    mkdirSync(workdir, { recursive: true });
+    const contract = createBridgeInstallationContract({
+      repoRoot: REPO_ROOT,
+      provider: 'gemini',
+      workdir,
+    });
+
+    const installed = contract.materialize({
+      ttsModel: 'eleven_flash_v2_5',
+      ttsVoice: 'voice-123',
+    });
+
+    expect(installed.instructions.method).toMatch(/symlink|copy/);
+    expect(existsSync(join(workdir, '.agents', 'skills', REPOLINE_SKILL_NAME, 'SKILL.md'))).toBe(
+      true
+    );
+    expect(
+      readFileSync(
+        join(
+          workdir,
+          '.agents',
+          'skills',
+          REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+          'references',
+          'PROVIDER_NOTES.md'
+        ),
+        'utf8'
+      )
+    ).toContain('voice-123');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('bridge installation contract resolves skill source paths from the repo root', () => {
   const sourcePaths = resolveBridgeInstallationSourcePaths(REPO_ROOT);
 

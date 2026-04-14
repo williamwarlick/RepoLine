@@ -17,7 +17,7 @@ export type DispatchRuleRecord = {
 };
 
 export function projectSkillPath(provider: BridgeProvider): string[] {
-  if (provider === 'codex') {
+  if (provider === 'codex' || provider === 'gemini') {
     return ['.agents', 'skills'];
   }
   if (provider === 'cursor') {
@@ -77,6 +77,9 @@ export function commandInstallHint(name: string): string | null {
   }
   if (name === 'cursor-agent') {
     return 'run `./scripts/bootstrap.sh cursor`';
+  }
+  if (name === 'gemini') {
+    return 'run `./scripts/bootstrap.sh gemini`';
   }
   return null;
 }

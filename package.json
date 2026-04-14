@@ -12,6 +12,7 @@
     "dev": "bun run ./scripts/phone-bridge.ts dev",
     "live": "bun run ./scripts/phone-bridge.ts live",
     "agent": "bun run ./scripts/phone-bridge.ts agent",
-    "doctor": "bun run ./scripts/phone-bridge.ts doctor"
+    "doctor": "bun run ./scripts/phone-bridge.ts doctor",
+    "benchmark:latency": "uv run --project agent python ./scripts/latency_harness.py"
   }
 }

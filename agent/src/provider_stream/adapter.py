@@ -14,6 +14,7 @@ from .common import (
     provider_display_name,
 )
 from .cursor import CursorProviderStreamAdapter
+from .gemini import GeminiProviderStreamAdapter
 from .runner import ProcessRunner, SubprocessProcessRunner
 
 RunnerFactory = Callable[[], ProcessRunner]
@@ -33,6 +34,7 @@ DEFAULT_ADAPTERS: dict[TextStreamProvider, ProviderStreamAdapter] = {
     "claude": ClaudeProviderStreamAdapter(),
     "codex": CodexProviderStreamAdapter(),
     "cursor": CursorProviderStreamAdapter(),
+    "gemini": GeminiProviderStreamAdapter(),
 }
 
 

@@ -29,8 +29,23 @@ def test_bridge_telemetry_writes_latest_call_summary(tmp_path) -> None:
         workdir="/tmp/repo",
     )
     telemetry.emit("turn_opened", turn_id="turn-123", transcript="hello")
+    telemetry.emit(
+        "turn_merged",
+        turn_id="turn-123",
+        transcript="hello there",
+        debounce_seconds=2.75,
+    )
+    telemetry.emit("model_turn_started", turn_id="turn-123")
+    telemetry.emit(
+        "model_status",
+        turn_id="turn-123",
+        message="Starting Codex CLI stream.",
+        latency_ms=12.3,
+    )
     telemetry.emit("model_first_chunk_ready", turn_id="turn-123", latency_ms=1234.5)
     telemetry.emit("model_speech_chunk", turn_id="turn-123", text="Hello there.")
+    telemetry.emit("tts_playout_started", turn_id="turn-123")
+    telemetry.emit("tts_playout_finished", turn_id="turn-123", latency_ms=2001.0)
     telemetry.emit(
         "model_turn_finished",
         turn_id="turn-123",
@@ -51,6 +66,10 @@ def test_bridge_telemetry_writes_latest_call_summary(tmp_path) -> None:
     assert "Hello there." in latest_summary
     assert "First Spoken Chunk: 1234.5 ms" in latest_summary
     assert "Close Reason: participant_disconnected" in latest_summary
+    assert "Latency Trail:" in latest_summary
+    assert "Transcript merged" in latest_summary
+    assert "First model status 12.3 ms after model start" in latest_summary
+    assert "Speech playout finished 2001.0 ms after model start" in latest_summary
 
     history_files = list((tmp_path / "calls").glob("*.md"))
     assert len(history_files) == 1

@@ -45,10 +45,14 @@ def build_cursor_command(config: TextStreamConfig) -> list[str]:
     return get_provider_adapter("cursor").build_command(config)
 
 
+def build_gemini_command(config: TextStreamConfig) -> list[str]:
+    return get_provider_adapter("gemini").build_command(config)
+
+
 __all__ = [
     "ACCESS_POLICY_ALIASES",
-    "AccessPolicy",
     "DEFAULT_PROVIDER_STREAM_FACADE",
+    "AccessPolicy",
     "ArtifactKind",
     "ProviderStreamAdapter",
     "ProviderStreamFacade",
@@ -67,6 +71,7 @@ __all__ = [
     "build_claude_command",
     "build_codex_command",
     "build_cursor_command",
+    "build_gemini_command",
     "build_stream_command",
     "extract_text_from_content",
     "get_provider_adapter",

@@ -1,0 +1,46 @@
+{
+  "defaults": {
+    "provider": "cursor",
+    "working_directory": ".",
+    "model": "composer-2-fast",
+    "thinking_level": "low",
+    "access_policy": "readonly",
+    "chunk_chars": 140
+  },
+  "scenarios": [
+    {
+      "name": "cursor-provider-stream-repoline",
+      "kind": "provider_stream",
+      "use_repoline_prompt": true,
+      "prompt": "What does RepoLine do?"
+    },
+    {
+      "name": "cursor-command-built-repoline",
+      "kind": "cursor_command",
+      "use_repoline_prompt": true,
+      "prompt": "What does RepoLine do?"
+    },
+    {
+      "name": "cursor-command-built-no-repoline",
+      "kind": "cursor_command",
+      "prompt": "What does RepoLine do?"
+    },
+    {
+      "name": "cursor-command-bare-direct",
+      "kind": "cursor_command",
+      "command": [
+        "cursor-agent",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--stream-partial-output",
+        "--sandbox",
+        "enabled",
+        "--model",
+        "composer-2-fast",
+        "What does RepoLine do?"
+      ],
+      "prompt": "What does RepoLine do?"
+    }
+  ]
+}

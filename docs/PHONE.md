@@ -12,14 +12,15 @@ Inbound calls arrive as SIP participants routed into LiveKit rooms through dispa
 
 ## Setup flow
 
-1. Run `bun run setup`.
-2. If `lk` is not linked yet, setup can run `lk cloud auth` or let you add a project manually with API credentials.
-3. Choose the LiveKit project, coding CLI, and repo workdir.
-4. Let setup inspect the project's existing phone numbers.
-5. If one number exists, setup can attach it automatically. If multiple numbers exist, choose the one to use.
-6. If no active number exists yet, setup can search LiveKit for a US local number and purchase it from the CLI before continuing.
-7. Pick the caller PIN.
-8. Setup creates or updates the dispatch rule associated with the chosen number.
+1. Install `bun` first if it is missing.
+2. Run `bun run setup`. This configures RepoLine but does not start the local worker or frontend.
+3. If `lk` is not linked yet, setup can run `lk cloud auth` or let you add a project manually with API credentials.
+4. Choose the LiveKit project, coding CLI, and repo workdir.
+5. Let setup inspect the project's existing phone numbers.
+6. If one number exists, setup can attach it automatically. If multiple numbers exist, choose the one to use.
+7. If no active number exists yet, setup can search LiveKit for a US local number and purchase it from the CLI before continuing.
+8. Pick the caller PIN.
+9. Setup creates or updates the dispatch rule associated with the chosen number.
 
 ## Number provisioning note
 

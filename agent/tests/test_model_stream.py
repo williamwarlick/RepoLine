@@ -7,6 +7,7 @@ from model_stream import (
     build_claude_command,
     build_codex_command,
     build_cursor_command,
+    build_gemini_command,
     infer_access_policy,
     normalize_provider,
 )
@@ -73,7 +74,7 @@ def test_build_codex_command_can_resume_session() -> None:
         provider="codex",
         prompt="Follow up",
         resume_session_id="019d7d81-ef86-7671-a691-d46652c8dd7e",
-        access_policy="workspace-write",
+        access_policy="readonly",
     )
 
     command = build_codex_command(config)
@@ -85,10 +86,26 @@ def test_build_codex_command_can_resume_session() -> None:
         "--json",
     ]
     assert "--skip-git-repo-check" in command
-    assert "--full-auto" in command
+    assert "--sandbox" not in command
+    assert "-c" in command
+    assert 'sandbox_mode="read-only"' in command
     assert "--dangerously-bypass-approvals-and-sandbox" not in command
     assert command[-2] == "019d7d81-ef86-7671-a691-d46652c8dd7e"
     assert command[-1] == "Follow up"
+
+
+def test_build_codex_command_can_resume_workspace_write_session() -> None:
+    config = TextStreamConfig(
+        provider="codex",
+        prompt="Follow up",
+        resume_session_id="019d7d81-ef86-7671-a691-d46652c8dd7e",
+        access_policy="workspace-write",
+    )
+
+    command = build_codex_command(config)
+
+    assert "--full-auto" in command
+    assert "--sandbox" not in command
 
 
 def test_build_cursor_command_enables_headless_force_mode() -> None:
@@ -104,6 +121,8 @@ def test_build_cursor_command_enables_headless_force_mode() -> None:
     command = build_cursor_command(config)
 
     assert command[:4] == ["cursor-agent", "-p", "--output-format", "stream-json"]
+    assert "--trust" in command
+    assert "--stream-partial-output" in command
     assert "-f" in command
     assert "--approve-mcps" in command
     assert "--sandbox" in command
@@ -112,6 +131,23 @@ def test_build_cursor_command_enables_headless_force_mode() -> None:
     assert "composer-2" in command
     assert "Speak briefly." in command[-1]
     assert "medium thinking effort" in command[-1]
+
+
+def test_build_cursor_command_defaults_to_composer_2_fast() -> None:
+    config = TextStreamConfig(
+        provider="cursor",
+        prompt="Hello",
+        access_policy="readonly",
+    )
+
+    command = build_cursor_command(config)
+
+    assert "--model" in command
+    assert "composer-2-fast" in command
+    assert "--trust" in command
+    assert "--mode" not in command
+    assert "readonly mode" in command[-1]
+    assert command[-1].endswith("User request:\nHello")
 
 
 def test_build_cursor_command_can_resume_session() -> None:
@@ -124,21 +160,99 @@ def test_build_cursor_command_can_resume_session() -> None:
 
     command = build_cursor_command(config)
 
-    assert "--mode" in command
-    assert "plan" in command
+    assert "--mode" not in command
     assert "--resume" in command
     assert "cursor-chat-123" in command
     assert "-f" not in command
     assert "--approve-mcps" not in command
     assert "--sandbox" in command
     assert "enabled" in command
-    assert command[-1] == "Follow up"
+    assert "--trust" in command
+    assert "--stream-partial-output" in command
+    assert "readonly mode" in command[-1]
+    assert command[-1].endswith("User request:\nFollow up")
+
+
+def test_build_cursor_command_supports_app_transport() -> None:
+    config = TextStreamConfig(
+        provider="cursor",
+        provider_transport="app",
+        prompt="Follow up",
+        working_directory="/tmp/repo",
+    )
+
+    command = build_cursor_command(config)
+
+    assert command[1].endswith("scripts/cursor_app_submit.py")
+    assert "--workspace" in command
+    assert any(value.endswith("/tmp/repo") for value in command)
+    assert "--prompt" in command
+    assert any(value.endswith("Follow up") for value in command)
+
+
+def test_build_gemini_command_defaults_to_flash_and_plan_mode() -> None:
+    config = TextStreamConfig(
+        provider="gemini",
+        prompt="Hello",
+        system_prompt="Speak briefly.",
+        access_policy="readonly",
+    )
+
+    command = build_gemini_command(config)
+
+    assert command[:4] == ["gemini", "--output-format", "stream-json", "-p"]
+    assert "--approval-mode" in command
+    assert "plan" in command
+    assert "--sandbox" in command
+    assert "--model" in command
+    assert "gemini-2.5-flash" in command
+    assert command[-1] == "gemini-2.5-flash"
+    assert "Speak briefly." in command[4]
+
+
+def test_build_gemini_command_can_resume_in_owner_mode() -> None:
+    config = TextStreamConfig(
+        provider="gemini",
+        prompt="Follow up",
+        resume_session_id="gemini-session-123",
+        model="gemini-3-flash-preview",
+        access_policy="owner",
+    )
+
+    command = build_gemini_command(config)
+
+    assert "--resume" in command
+    assert "gemini-session-123" in command
+    assert "--yolo" in command
+    assert "--sandbox" not in command
+    assert command[-1] == "gemini-3-flash-preview"
+
+
+def test_build_gemini_command_supports_direct_api_transport() -> None:
+    config = TextStreamConfig(
+        provider="gemini",
+        provider_transport="api",
+        prompt="Follow up",
+        model="gemini-2.5-flash",
+        thinking_level="low",
+    )
+
+    command = build_gemini_command(config)
+
+    assert command == [
+        "gemini-api",
+        "--model",
+        "gemini-2.5-flash",
+        "--thinking-budget",
+        "0",
+    ]
 
 
 def test_normalize_provider_defaults_to_claude() -> None:
     assert normalize_provider(None) == "claude"
     assert normalize_provider("CoDeX") == "codex"
     assert normalize_provider("cursor-agent") == "cursor"
+    assert normalize_provider("gemini") == "gemini"
 
 
 def test_infer_access_policy_prefers_explicit_setting() -> None:

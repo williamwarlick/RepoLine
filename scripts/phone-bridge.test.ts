@@ -23,36 +23,14 @@ import {
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, '..');
 
-test('parseCliArgs recognizes setup --no-start', () => {
-  expect(parseCliArgs(['setup', '--no-start'])).toEqual({
-    command: 'setup',
-    setupOptions: {
-      startLiveAfterSetup: false,
-    },
-  });
-});
-
-test('parseCliArgs honors REPOLINE_SETUP_SKIP_LIVE', () => {
-  expect(parseCliArgs(['setup'], { REPOLINE_SETUP_SKIP_LIVE: '1' })).toEqual({
-    command: 'setup',
-    setupOptions: {
-      startLiveAfterSetup: false,
-    },
-  });
-});
-
 test('parseCliArgs defaults non-setup commands to normal execution', () => {
   expect(parseCliArgs(['doctor'])).toEqual({
     command: 'doctor',
-    setupOptions: {
-      startLiveAfterSetup: true,
-    },
+    setupOptions: {},
   });
   expect(parseCliArgs(['unknown-command'])).toEqual({
     command: null,
-    setupOptions: {
-      startLiveAfterSetup: true,
-    },
+    setupOptions: {},
   });
 });
 
@@ -60,9 +38,8 @@ test('parseCliArgs parses non-interactive setup flags', () => {
   expect(
     parseCliArgs([
       'setup',
-      '--no-start',
       '--provider',
-      'cursor',
+      'gemini',
       '--project',
       'demo',
       '--workdir',
@@ -74,8 +51,7 @@ test('parseCliArgs parses non-interactive setup flags', () => {
   ).toEqual({
     command: 'setup',
     setupOptions: {
-      startLiveAfterSetup: false,
-      bridgeProvider: 'cursor',
+      bridgeProvider: 'gemini',
       livekitProjectName: 'demo',
       workdir: '/tmp/demo',
       agentName: 'smoke-agent',
@@ -234,9 +210,12 @@ test('setup smoke test runs non-interactively with stub CLIs', () => {
     const workdir = join(repoRoot, 'workdir');
     const fakeBinDir = join(repoRoot, 'fake-bin');
     const commandLogPath = join(repoRoot, 'commands.log');
+    const fakeHomeDir = join(repoRoot, 'home');
 
     mkdirSync(join(workdir, '.git'), { recursive: true });
     mkdirSync(fakeBinDir, { recursive: true });
+    mkdirSync(join(fakeHomeDir, '.gemini'), { recursive: true });
+    writeFileSync(join(fakeHomeDir, '.gemini', 'oauth_creds.json'), '{"token":"test"}\n');
     writeFakeExecutables(fakeBinDir, commandLogPath);
 
     const result = spawnSync(
@@ -245,9 +224,8 @@ test('setup smoke test runs non-interactively with stub CLIs', () => {
         'run',
         join(repoRoot, 'scripts', 'phone-bridge.ts'),
         'setup',
-        '--no-start',
         '--provider',
-        'cursor',
+        'gemini',
         '--project',
         'demo',
         '--workdir',
@@ -260,6 +238,7 @@ test('setup smoke test runs non-interactively with stub CLIs', () => {
         cwd: repoRoot,
         env: {
           ...process.env,
+          HOME: fakeHomeDir,
           PATH: `${fakeBinDir}:${process.env.PATH ?? ''}`,
           REPOLINE_TEST_COMMAND_LOG: commandLogPath,
         },
@@ -268,37 +247,49 @@ test('setup smoke test runs non-interactively with stub CLIs', () => {
     );
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain('Setup complete. Live mode was skipped because --no-start was set.');
+    expect(result.stdout).toContain(
+      'Setup complete. Run `bun run live` when you are ready to start RepoLine.'
+    );
 
     const agentEnv = loadEnvFile(join(repoRoot, 'agent', '.env.local'));
     const frontendEnv = loadEnvFile(join(repoRoot, 'frontend', '.env.local'));
     const state = loadSetupState(join(repoRoot, '.bridge', 'state.json'));
 
     expect(agentEnv.LIVEKIT_URL).toBe('wss://demo.livekit.cloud');
-    expect(agentEnv.BRIDGE_CLI_PROVIDER).toBe('cursor');
+    expect(agentEnv.BRIDGE_CLI_PROVIDER).toBe('gemini');
     expect(agentEnv.BRIDGE_WORKDIR).toBe(workdir);
     expect(agentEnv.LIVEKIT_AGENT_NAME).toBe('smoke-agent');
     expect(frontendEnv.AGENT_NAME).toBe('smoke-agent');
     expect(state).toMatchObject({
       livekit_project_name: 'demo',
       livekit_url: 'wss://demo.livekit.cloud',
-      bridge_provider: 'cursor',
+      bridge_provider: 'gemini',
       workdir,
       agent_name: 'smoke-agent',
       phone: null,
     });
 
-    expect(existsSync(join(workdir, '.cursor', 'rules', `${REPOLINE_SKILL_NAME}.mdc`))).toBe(true);
     expect(
       existsSync(
-        join(workdir, '.cursor', 'rules', `${REPOLINE_TTS_PRONUNCIATION_SKILL_NAME}.mdc`)
+        join(workdir, '.agents', 'skills', REPOLINE_SKILL_NAME, 'SKILL.md')
+      )
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(
+          workdir,
+          '.agents',
+          'skills',
+          REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+          'references',
+          'PROVIDER_NOTES.md'
+        )
       )
     ).toBe(true);
 
     const commandLog = readFileSync(commandLogPath, 'utf8');
     expect(commandLog).toContain('lk project list -j');
     expect(commandLog).toContain('lk --project demo number list -j');
-    expect(commandLog).toContain('cursor-agent status');
     expect(commandLog).toContain('uv sync');
     expect(commandLog).toContain('uv run python src/agent.py download-files');
     expect(commandLog).toContain('bun install');
@@ -390,6 +381,14 @@ if [ "$1" = "login" ]; then
 fi
 printf '%s\n' "unexpected cursor-agent args: $*" >&2
 exit 1
+`
+  );
+
+  writeExecutable(
+    join(fakeBinDir, 'gemini'),
+    `#!/bin/sh
+printf '%s\n' "gemini $*" >> "$REPOLINE_TEST_COMMAND_LOG"
+exit 0
 `
   );
 

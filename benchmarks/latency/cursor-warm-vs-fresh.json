@@ -1,0 +1,49 @@
+{
+  "defaults": {
+    "provider": "cursor",
+    "working_directory": ".",
+    "model": "composer-2-fast",
+    "thinking_level": "low",
+    "access_policy": "readonly",
+    "chunk_chars": 140,
+    "use_repoline_prompt": true
+  },
+  "scenarios": [
+    {
+      "name": "cursor-built-hi-fresh",
+      "kind": "cursor_command",
+      "prompt": "Say hi in one short sentence.",
+      "repeats": 3
+    },
+    {
+      "name": "cursor-built-hi-resume",
+      "kind": "cursor_command",
+      "turns": [
+        {
+          "label": "turn-1",
+          "prompt": "Say hi in one short sentence."
+        },
+        {
+          "label": "turn-2",
+          "prompt": "Say hi again in one short sentence."
+        },
+        {
+          "label": "turn-3",
+          "prompt": "Say hi one more time in one short sentence."
+        }
+      ]
+    },
+    {
+      "name": "cursor-provider-hi-fresh",
+      "kind": "provider_stream",
+      "prompt": "Say hi in one short sentence.",
+      "repeats": 2
+    },
+    {
+      "name": "cursor-built-one-sentence-repo",
+      "kind": "cursor_command",
+      "prompt": "What does RepoLine do in one short sentence?",
+      "repeats": 2
+    }
+  ]
+}

@@ -122,6 +122,16 @@ install_cursor() {
   curl https://cursor.com/install -fsS | bash
 }
 
+install_gemini() {
+  if has gemini; then
+    log 'gemini already installed'
+    return
+  fi
+  install_node
+  log 'installing Gemini CLI via npm'
+  npm install -g @google/gemini-cli
+}
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -134,6 +144,7 @@ Supported tools:
   claude
   codex
   cursor
+  gemini
 
 When no tool list is provided, bootstrap installs the base RepoLine prerequisites:
   bun uv lk
@@ -183,6 +194,9 @@ for raw_tool in "$@"; do
       ;;
     cursor)
       install_cursor
+      ;;
+    gemini)
+      install_gemini
       ;;
     *)
       usage

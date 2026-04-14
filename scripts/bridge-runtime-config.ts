@@ -8,7 +8,7 @@ export type PhoneConfig = {
   dispatchRuleId: string;
 };
 
-export type BridgeProvider = 'claude' | 'codex' | 'cursor';
+export type BridgeProvider = 'claude' | 'codex' | 'cursor' | 'gemini';
 
 export type SetupState = {
   configured_at: string;
@@ -39,6 +39,8 @@ type RawState = {
 
 export const REPOLINE_SKILL_NAME = 'repoline-voice-session';
 export const REPOLINE_TTS_PRONUNCIATION_SKILL_NAME = 'repoline-tts-pronunciation';
+export const DEFAULT_CURSOR_MODEL = 'composer-2-fast';
+export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 
 export function normalizeBridgeProvider(value: string): BridgeProvider {
   const normalized = value.trim().toLowerCase();
@@ -47,6 +49,9 @@ export function normalizeBridgeProvider(value: string): BridgeProvider {
   }
   if (normalized === 'cursor' || normalized === 'cursor-agent') {
     return 'cursor';
+  }
+  if (normalized === 'gemini') {
+    return 'gemini';
   }
   return 'claude';
 }
@@ -58,6 +63,13 @@ export function buildAgentEnvValues(options: {
   workdir: string;
   existingAgentEnv: Record<string, string>;
 }): Record<string, string> {
+  const sttProvider =
+    options.existingAgentEnv.BRIDGE_STT_PROVIDER ??
+    (options.existingAgentEnv.DEEPGRAM_API_KEY ? 'deepgram' : 'livekit');
+  const ttsProvider =
+    options.existingAgentEnv.BRIDGE_TTS_PROVIDER ??
+    (options.existingAgentEnv.ELEVENLABS_API_KEY ? 'elevenlabs' : 'livekit');
+
   return {
     LIVEKIT_URL: options.project.url,
     LIVEKIT_API_KEY: options.project.apiKey,
@@ -65,7 +77,17 @@ export function buildAgentEnvValues(options: {
     LIVEKIT_AGENT_NAME: options.agentName,
     BRIDGE_CLI_PROVIDER: options.bridgeProvider,
     BRIDGE_WORKDIR: options.workdir,
-    BRIDGE_MODEL: options.existingAgentEnv.BRIDGE_MODEL ?? '',
+    BRIDGE_MODEL:
+      options.existingAgentEnv.BRIDGE_MODEL ??
+      (options.bridgeProvider === 'cursor'
+        ? DEFAULT_CURSOR_MODEL
+        : options.bridgeProvider === 'gemini'
+          ? DEFAULT_GEMINI_MODEL
+          : ''),
+    BRIDGE_CURSOR_TRANSPORT:
+      options.existingAgentEnv.BRIDGE_CURSOR_TRANSPORT ?? 'cli',
+    BRIDGE_GEMINI_TRANSPORT:
+      options.existingAgentEnv.BRIDGE_GEMINI_TRANSPORT ?? 'cli',
     BRIDGE_THINKING_LEVEL:
       options.existingAgentEnv.BRIDGE_THINKING_LEVEL ??
       options.existingAgentEnv.BRIDGE_CODEX_REASONING_EFFORT ??
@@ -77,14 +99,31 @@ export function buildAgentEnvValues(options: {
       options.existingAgentEnv.REPOLINE_TTS_PRONUNCIATION_SKILL_NAME ??
       REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
     BRIDGE_SYSTEM_PROMPT: options.existingAgentEnv.BRIDGE_SYSTEM_PROMPT ?? '',
-    BRIDGE_CHUNK_CHARS: options.existingAgentEnv.BRIDGE_CHUNK_CHARS ?? '140',
+    BRIDGE_CHUNK_CHARS: options.existingAgentEnv.BRIDGE_CHUNK_CHARS ?? '80',
     FINAL_TRANSCRIPT_DEBOUNCE_SECONDS:
-      options.existingAgentEnv.FINAL_TRANSCRIPT_DEBOUNCE_SECONDS ?? '0.85',
+      options.existingAgentEnv.FINAL_TRANSCRIPT_DEBOUNCE_SECONDS ?? '0.35',
+    BRIDGE_STT_PROVIDER: sttProvider,
+    BRIDGE_SHORT_TRANSCRIPT_WORDS:
+      options.existingAgentEnv.BRIDGE_SHORT_TRANSCRIPT_WORDS ?? '2',
+    BRIDGE_SHORT_TRANSCRIPT_DEBOUNCE_SECONDS:
+      options.existingAgentEnv.BRIDGE_SHORT_TRANSCRIPT_DEBOUNCE_SECONDS ?? '0.55',
     LIVEKIT_STT_MODEL: options.existingAgentEnv.LIVEKIT_STT_MODEL ?? 'deepgram/nova-3',
     LIVEKIT_STT_LANGUAGE: options.existingAgentEnv.LIVEKIT_STT_LANGUAGE ?? 'multi',
+    GEMINI_API_KEY: options.existingAgentEnv.GEMINI_API_KEY ?? '',
+    GOOGLE_API_KEY: options.existingAgentEnv.GOOGLE_API_KEY ?? '',
+    DEEPGRAM_API_KEY: options.existingAgentEnv.DEEPGRAM_API_KEY ?? '',
+    DEEPGRAM_STT_MODEL: options.existingAgentEnv.DEEPGRAM_STT_MODEL ?? 'nova-3',
     LIVEKIT_TTS_MODEL: options.existingAgentEnv.LIVEKIT_TTS_MODEL ?? 'cartesia/sonic-3',
+    BRIDGE_TTS_PROVIDER: ttsProvider,
     LIVEKIT_TTS_VOICE:
       options.existingAgentEnv.LIVEKIT_TTS_VOICE ?? '9626c31c-bec5-4cca-baa8-f8ba9e84c8bc',
+    ELEVENLABS_API_KEY: options.existingAgentEnv.ELEVENLABS_API_KEY ?? '',
+    ELEVENLABS_TTS_MODEL:
+      options.existingAgentEnv.ELEVENLABS_TTS_MODEL ?? 'eleven_flash_v2_5',
+    ELEVENLABS_VOICE_ID:
+      options.existingAgentEnv.ELEVENLABS_VOICE_ID ??
+      options.existingAgentEnv.LIVEKIT_TTS_VOICE ??
+      'onwK4e9ZLuTAKqWW03F9',
     LIVEKIT_RECORD_AUDIO: options.existingAgentEnv.LIVEKIT_RECORD_AUDIO ?? 'false',
     LIVEKIT_RECORD_TRACES: options.existingAgentEnv.LIVEKIT_RECORD_TRACES ?? 'false',
     LIVEKIT_RECORD_LOGS: options.existingAgentEnv.LIVEKIT_RECORD_LOGS ?? 'false',

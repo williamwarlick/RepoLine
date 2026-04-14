@@ -5,6 +5,8 @@ import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import {
+  DEFAULT_CURSOR_MODEL,
+  DEFAULT_GEMINI_MODEL,
   REPOLINE_SKILL_NAME,
   buildAgentEnvValues,
   buildFrontendEnvValues,
@@ -20,6 +22,7 @@ const REPO_ROOT = resolve(import.meta.dir, '..');
 test('normalizeBridgeProvider keeps legacy aliases compatible', () => {
   expect(normalizeBridgeProvider('cursor-agent')).toBe('cursor');
   expect(normalizeBridgeProvider('CoDeX')).toBe('codex');
+  expect(normalizeBridgeProvider('GeMiNi')).toBe('gemini');
   expect(normalizeBridgeProvider('unknown')).toBe('claude');
 });
 
@@ -82,6 +85,107 @@ test('buildFrontendEnvValues keeps a stable default app URL', () => {
     LIVEKIT_API_SECRET: 'secret',
     AGENT_NAME: 'clawdbot-agent',
     NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
+  });
+});
+
+test('buildAgentEnvValues preserves direct speech provider env values', () => {
+  expect(
+    buildAgentEnvValues({
+      project: {
+        url: 'wss://example.livekit.cloud',
+        apiKey: 'key',
+        apiSecret: 'secret',
+      },
+      agentName: 'clawdbot-agent',
+      bridgeProvider: 'cursor',
+      workdir: '/tmp/demo',
+      existingAgentEnv: {
+        BRIDGE_STT_PROVIDER: 'deepgram',
+        DEEPGRAM_API_KEY: 'deepgram-key',
+        BRIDGE_TTS_PROVIDER: 'elevenlabs',
+        ELEVENLABS_API_KEY: 'elevenlabs-key',
+        ELEVENLABS_VOICE_ID: 'voice-123',
+      },
+    })
+  ).toMatchObject({
+    BRIDGE_MODEL: DEFAULT_CURSOR_MODEL,
+    BRIDGE_CURSOR_TRANSPORT: 'cli',
+    BRIDGE_CHUNK_CHARS: '80',
+    BRIDGE_SHORT_TRANSCRIPT_WORDS: '2',
+    BRIDGE_SHORT_TRANSCRIPT_DEBOUNCE_SECONDS: '0.55',
+    BRIDGE_STT_PROVIDER: 'deepgram',
+    DEEPGRAM_API_KEY: 'deepgram-key',
+    BRIDGE_TTS_PROVIDER: 'elevenlabs',
+    ELEVENLABS_API_KEY: 'elevenlabs-key',
+    ELEVENLABS_VOICE_ID: 'voice-123',
+  });
+});
+
+test('buildAgentEnvValues preserves direct Gemini API transport credentials', () => {
+  expect(
+    buildAgentEnvValues({
+      project: {
+        url: 'wss://example.livekit.cloud',
+        apiKey: 'key',
+        apiSecret: 'secret',
+      },
+      agentName: 'clawdbot-agent',
+      bridgeProvider: 'gemini',
+      workdir: '/tmp/demo',
+      existingAgentEnv: {
+        BRIDGE_GEMINI_TRANSPORT: 'api',
+        GEMINI_API_KEY: 'gemini-key',
+        GOOGLE_API_KEY: 'google-key',
+      },
+    })
+  ).toMatchObject({
+    BRIDGE_CLI_PROVIDER: 'gemini',
+    BRIDGE_MODEL: DEFAULT_GEMINI_MODEL,
+    BRIDGE_GEMINI_TRANSPORT: 'api',
+    GEMINI_API_KEY: 'gemini-key',
+    GOOGLE_API_KEY: 'google-key',
+  });
+});
+
+test('buildAgentEnvValues defaults Gemini to flash', () => {
+  expect(
+    buildAgentEnvValues({
+      project: {
+        url: 'wss://example.livekit.cloud',
+        apiKey: 'key',
+        apiSecret: 'secret',
+      },
+      agentName: 'clawdbot-agent',
+      bridgeProvider: 'gemini',
+      workdir: '/tmp/demo',
+      existingAgentEnv: {},
+    })
+  ).toMatchObject({
+    BRIDGE_MODEL: DEFAULT_GEMINI_MODEL,
+    BRIDGE_CLI_PROVIDER: 'gemini',
+    BRIDGE_GEMINI_TRANSPORT: 'cli',
+  });
+});
+
+test('buildAgentEnvValues preserves cursor app transport', () => {
+  expect(
+    buildAgentEnvValues({
+      project: {
+        url: 'wss://example.livekit.cloud',
+        apiKey: 'key',
+        apiSecret: 'secret',
+      },
+      agentName: 'clawdbot-agent',
+      bridgeProvider: 'cursor',
+      workdir: '/tmp/demo',
+      existingAgentEnv: {
+        BRIDGE_CURSOR_TRANSPORT: 'app',
+      },
+    })
+  ).toMatchObject({
+    BRIDGE_CLI_PROVIDER: 'cursor',
+    BRIDGE_MODEL: DEFAULT_CURSOR_MODEL,
+    BRIDGE_CURSOR_TRANSPORT: 'app',
   });
 });
 
