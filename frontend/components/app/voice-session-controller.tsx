@@ -1,8 +1,8 @@
 'use client';
 
 import { useSessionContext } from '@livekit/components-react';
-import { createContext, useContext } from 'react';
 import type { PropsWithChildren } from 'react';
+import { createContext, useContext } from 'react';
 import { PRECONNECT_MIC_OPTIONS } from '@/lib/voice-session';
 
 type VoiceSessionControllerValue = {
@@ -11,12 +11,9 @@ type VoiceSessionControllerValue = {
   endCall: () => void;
 };
 
-const VoiceSessionControllerContext =
-  createContext<VoiceSessionControllerValue | null>(null);
+const VoiceSessionControllerContext = createContext<VoiceSessionControllerValue | null>(null);
 
-export function VoiceSessionControllerProvider({
-  children,
-}: PropsWithChildren) {
+export function VoiceSessionControllerProvider({ children }: PropsWithChildren) {
   const { isConnected, start, end } = useSessionContext();
 
   return (

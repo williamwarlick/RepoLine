@@ -2,14 +2,12 @@
 
 import { useSession } from '@livekit/components-react';
 import { WarningIcon } from '@phosphor-icons/react/dist/ssr';
-import { useMemo, type CSSProperties } from 'react';
+import { type CSSProperties, useMemo } from 'react';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionProvider } from '@/components/agents-ui/agent-session-provider';
 import { StartAudioButton } from '@/components/agents-ui/start-audio-button';
 import { ViewController } from '@/components/app/view-controller';
-import {
-  VoiceSessionControllerProvider,
-} from '@/components/app/voice-session-controller';
+import { VoiceSessionControllerProvider } from '@/components/app/voice-session-controller';
 import { Toaster } from '@/components/ui/sonner';
 import { useAgentErrors } from '@/hooks/useAgentErrors';
 import { useDebugMode } from '@/hooks/useDebug';

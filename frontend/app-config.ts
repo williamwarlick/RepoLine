@@ -39,8 +39,7 @@ function readOptionalEnv(key: string): string | undefined {
 export const APP_CONFIG_DEFAULTS: AppConfig = {
   companyName: 'RepoLine',
   pageTitle: 'RepoLine',
-  pageDescription:
-    'A voice bridge for Claude Code, Codex, Cursor, and other local coding CLIs.',
+  pageDescription: 'A voice bridge for Claude Code, Codex, Cursor, and other local coding CLIs.',
 
   supportsChatInput: true,
   supportsVideoInput: false,

@@ -1,8 +1,8 @@
 import { useAgent } from '@livekit/components-react';
 import { WarningIcon } from '@phosphor-icons/react';
 import { type ReactNode, useEffect } from 'react';
-import { useVoiceSessionController } from '@/components/app/voice-session-controller';
 import { toast as sonnerToast } from 'sonner';
+import { useVoiceSessionController } from '@/components/app/voice-session-controller';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface ToastProps {

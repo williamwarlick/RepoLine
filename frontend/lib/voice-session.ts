@@ -13,9 +13,7 @@ export const PRECONNECT_MIC_OPTIONS: TrackPublishOptions = {
 export function resolveVoiceSessionMode(
   env: NodeJS.ProcessEnv | VoiceSessionEnv = process.env
 ): 'sandbox' | 'endpoint' {
-  return typeof env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string'
-    ? 'sandbox'
-    : 'endpoint';
+  return typeof env.NEXT_PUBLIC_CONN_DETAILS_ENDPOINT === 'string' ? 'sandbox' : 'endpoint';
 }
 
 export function createVoiceSessionTokenSource(

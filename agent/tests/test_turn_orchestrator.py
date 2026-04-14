@@ -100,6 +100,7 @@ class FakeProviderStream:
 def _config(**overrides: object) -> TurnOrchestratorConfig:
     values: dict[str, object] = {
         "provider": "claude",
+        "provider_transport": None,
         "chunk_chars": 8,
         "model": None,
         "thinking_level": "low",
