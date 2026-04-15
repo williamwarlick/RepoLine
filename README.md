@@ -97,6 +97,11 @@ For Cursor specifically, there are now two different paths:
 - `BRIDGE_CURSOR_TRANSPORT=app`: submit into the open Cursor app and read replies from the app's local composer state
 
 The app transport is the closest local path to the fast in-app experience, but it depends on a live Cursor desktop session for the target workspace.
+To compare the new direct app submit path against active-input automation and headless CLI, run:
+
+```bash
+bun run benchmark:latency benchmarks/latency/cursor-app-submit-modes.json
+```
 
 You can also save machine-readable results:
 

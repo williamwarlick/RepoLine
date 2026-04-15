@@ -30,6 +30,7 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
                         "name": "stream",
                         "kind": "provider_stream",
                         "prompt": "What does RepoLine do?",
+                        "provider_submit_mode": "bridge-composer-handle",
                     },
                     {
                         "name": "direct",
@@ -50,6 +51,7 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
     assert len(plan.scenarios) == 2
     assert plan.scenarios[0].working_directory == str(tmp_path.resolve())
     assert plan.scenarios[0].chunk_chars == 120
+    assert plan.scenarios[0].provider_submit_mode == "bridge-composer-handle"
     assert plan.scenarios[0].timeout_seconds == 60
     assert [turn.label for turn in plan.scenarios[1].turns] == ["first", "second"]
 
@@ -76,6 +78,7 @@ alwaysApply: true
         name="cursor-repoline",
         kind="cursor_command",
         provider="cursor",
+        provider_submit_mode="bridge-composer-handle",
         working_directory=str(workdir),
         prompt="What does RepoLine do?",
         use_repoline_prompt=True,
@@ -86,6 +89,7 @@ alwaysApply: true
 
     assert config.system_prompt is not None
     assert config.system_prompt.startswith("Speak plainly.")
+    assert config.provider_submit_mode == "bridge-composer-handle"
     assert "RepoLine voice session" in config.system_prompt
     assert "Answer directly from the request and obvious repo context when you can." in config.system_prompt
 
@@ -94,6 +98,7 @@ alwaysApply: true
 async def test_measure_provider_stream_turn_tracks_first_chunk_and_done() -> None:
     async def fake_stream(_config: TextStreamConfig):
         yield TextStreamEvent(type="status", message="Starting Cursor Agent stream.")
+        yield TextStreamEvent(type="assistant_delta", text="RepoLine is")
         yield TextStreamEvent(
             type="speech_chunk", text="RepoLine is live.", final=False
         )
@@ -108,6 +113,8 @@ async def test_measure_provider_stream_turn_tracks_first_chunk_and_done() -> Non
     )
 
     assert result.first_status_message == "Starting Cursor Agent stream."
+    assert result.first_assistant_preview == "RepoLine is"
+    assert result.first_response_preview == "RepoLine is live."
     assert result.first_speech_chunk_preview == "RepoLine is live."
     assert result.exit_code == 0
     assert result.session_id == "cursor-session"
@@ -163,6 +170,8 @@ def test_cursor_command_accumulator_tracks_first_assistant_and_chunk() -> None:
     assert accumulator.first_status_ms == 12.0
     assert accumulator.first_assistant_ms == 55.0
     assert accumulator.first_assistant_preview == "Looking now."
+    assert accumulator.first_response_ms == 55.0
+    assert accumulator.first_response_preview == "Looking now."
     assert accumulator.first_speech_chunk_ms == 55.0
     assert accumulator.first_speech_chunk_preview == "Looking now."
     assert accumulator.speech_chunk_count == 2
@@ -208,6 +217,8 @@ def test_provider_command_accumulator_tracks_gemini_first_assistant_and_chunk() 
     assert accumulator.first_status_message == "Gemini CLI started a session."
     assert accumulator.first_assistant_ms == 42.0
     assert accumulator.first_assistant_preview == "Hi there!"
+    assert accumulator.first_response_ms == 42.0
+    assert accumulator.first_response_preview == "Hi there!"
     assert accumulator.first_speech_chunk_ms == 42.0
     assert accumulator.first_speech_chunk_preview == "Hi there!"
     assert accumulator.speech_chunk_count == 1
@@ -232,6 +243,8 @@ def test_provider_command_accumulator_tracks_openclaw_plain_output() -> None:
     assert accumulator.first_status_message == "OpenClaw started a session."
     assert accumulator.first_assistant_ms == 1200.0
     assert accumulator.first_assistant_preview == "Two plus two equals four."
+    assert accumulator.first_response_ms == 1200.0
+    assert accumulator.first_response_preview == "Two plus two equals four."
     assert accumulator.first_speech_chunk_ms == 1200.0
     assert accumulator.first_speech_chunk_preview == "Two plus two equals four."
 
@@ -255,5 +268,7 @@ def test_provider_command_accumulator_tracks_openclaw_json_output() -> None:
     assert accumulator.session_id == "openclaw-2"
     assert accumulator.first_assistant_ms == 2300.0
     assert accumulator.first_assistant_preview == "RepoLine is a voice bridge."
+    assert accumulator.first_response_ms == 2300.0
+    assert accumulator.first_response_preview == "RepoLine is a voice bridge."
     assert accumulator.first_speech_chunk_ms == 2300.0
     assert accumulator.first_speech_chunk_preview == "RepoLine is a voice bridge."

@@ -18,12 +18,14 @@ class FakeSubmitter:
         workspace_root: str,
         prompt: str,
         command_title: str,
+        submit_mode: str | None,
     ) -> CursorAppSubmitResult:
         self.calls.append(
             {
                 "workspace_root": workspace_root,
                 "prompt": prompt,
                 "command_title": command_title,
+                "submit_mode": submit_mode,
             }
         )
         return self.result
@@ -49,9 +51,12 @@ def _assistant_update(text: str):
             self.role = "assistant"
             self.is_tool_event = False
             self.raw: dict[str, str] = {}
+            self.bubble_id = "bubble-123"
+            self.request_id = "req-123"
 
     class Update:
         def __init__(self) -> None:
+            self.kind = "new"
             self.bubble = Bubble()
             self.delta_text = text
 
@@ -100,6 +105,7 @@ async def test_cursor_app_transport_streams_assistant_text_and_completes() -> No
             TextStreamConfig(
                 provider="cursor",
                 provider_transport="app",
+                provider_submit_mode="bridge-composer-handle",
                 prompt="Say hi",
                 working_directory="/tmp/demo",
                 chunk_chars=8,
@@ -111,12 +117,21 @@ async def test_cursor_app_transport_streams_assistant_text_and_completes() -> No
         "Starting Cursor App stream.",
         "Cursor App submitted the turn.",
     ]
+    assistant_deltas = [event for event in events if event.type == "assistant_delta"]
+    assert assistant_deltas[0].text == "Fast reply."
+    assert assistant_deltas[0].trace == {
+        "composer_id": "composer-123",
+        "bubble_id": "bubble-123",
+        "request_id": "req-123",
+        "kind": "new",
+    }
     assert [event.text for event in events if event.type == "speech_chunk"] == [
         "Fast reply."
     ]
     assert events[-1].type == "done"
     assert submitter.calls[0]["workspace_root"].endswith("/tmp/demo")
     assert submitter.calls[0]["prompt"].endswith("Say hi")
+    assert submitter.calls[0]["submit_mode"] == "bridge-composer-handle"
 
 
 @pytest.mark.asyncio
@@ -163,13 +178,18 @@ async def test_cursor_app_transport_adds_readonly_note_to_submitted_prompt() -> 
 async def test_cursor_app_transport_switches_to_submitted_composer_id() -> None:
     submitter = FakeSubmitter()
     submitter.result = CursorAppSubmitResult(composer_id="composer-live")
+    created_tails: dict[str, FakeTail] = {}
+
+    def make_tail(composer_id: str) -> FakeTail:
+        tail = FakeTail([[], [_assistant_update(f"reply from {composer_id}")], []])
+        created_tails[composer_id] = tail
+        return tail
 
     transport = CursorAppTransport(
         submitter=submitter,
         composer_id_resolver=lambda workspace: "composer-stale",
-        tail_factory=lambda composer_id: FakeTail(
-            [[], [_assistant_update(f"reply from {composer_id}")], []]
-        ),
+        tail_factory=make_tail,
+        bubble_loader=lambda composer_id: [_assistant_bubble(f"old-{composer_id}")],
         composer_loader=lambda composer_id: {
             "status": "completed",
             "generatingBubbleIds": [],
@@ -197,6 +217,9 @@ async def test_cursor_app_transport_switches_to_submitted_composer_id() -> None:
     ]
     assert [event.text for event in events if event.type == "speech_chunk"] == [
         "reply from composer-live"
+    ]
+    assert [bubble.text for bubble in created_tails["composer-live"].seeded] == [
+        "old-composer-live"
     ]
     assert events[-1].session_id == "composer-live"
 

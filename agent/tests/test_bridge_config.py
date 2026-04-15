@@ -259,6 +259,25 @@ def test_bridge_config_load_supports_cursor_app_transport(tmp_path: Path) -> Non
     assert config.provider_transport == "app"
 
 
+def test_bridge_config_load_supports_cursor_app_submit_mode(tmp_path: Path) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "cursor", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(
+            workdir,
+            BRIDGE_CLI_PROVIDER="cursor",
+            BRIDGE_CURSOR_TRANSPORT="app",
+            BRIDGE_CURSOR_APP_SUBMIT_MODE="bridge-composer-handle",
+        ),
+        repo_root=tmp_path,
+    )
+
+    assert config.provider == "cursor"
+    assert config.provider_transport == "app"
+    assert config.provider_submit_mode == "bridge-composer-handle"
+
+
 def test_render_call_greeting_announces_cursor_app_transport(tmp_path: Path) -> None:
     workdir = tmp_path / "repo"
     _install_skill(workdir, "cursor", "repoline-voice-session")

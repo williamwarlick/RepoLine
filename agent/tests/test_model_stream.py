@@ -177,6 +177,7 @@ def test_build_cursor_command_supports_app_transport() -> None:
     config = TextStreamConfig(
         provider="cursor",
         provider_transport="app",
+        provider_submit_mode="bridge-composer-handle",
         prompt="Follow up",
         working_directory="/tmp/repo",
     )
@@ -188,6 +189,8 @@ def test_build_cursor_command_supports_app_transport() -> None:
     assert any(value.endswith("/tmp/repo") for value in command)
     assert "--prompt" in command
     assert any(value.endswith("Follow up") for value in command)
+    assert "--submit-mode" in command
+    assert "bridge-composer-handle" in command
 
 
 def test_build_gemini_command_defaults_to_flash_and_plan_mode() -> None:

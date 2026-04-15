@@ -14,6 +14,7 @@ sys.path.insert(0, str(REPO_ROOT / "agent" / "src"))
 
 from cursor_app_submit import (  # noqa: E402
     DEFAULT_CURSOR_APP_COMMAND_TITLE,
+    DEFAULT_CURSOR_APP_SUBMIT_MODE,
     CursorAppSubmitError,
     submit_prompt_to_cursor_app,
 )
@@ -38,6 +39,14 @@ async def _main() -> int:
         required=True,
         help="Prompt text to paste and submit into the Cursor app.",
     )
+    parser.add_argument(
+        "--submit-mode",
+        default=DEFAULT_CURSOR_APP_SUBMIT_MODE,
+        help=(
+            "Cursor app submit mode: auto, bridge-composer-handle, "
+            "bridge-submit, or active-input."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -45,6 +54,7 @@ async def _main() -> int:
             workspace_root=args.workspace,
             prompt=args.prompt,
             command_title=args.command_title,
+            submit_mode=args.submit_mode,
         )
     except CursorAppSubmitError as exc:
         print(f"error: {exc}", file=sys.stderr)

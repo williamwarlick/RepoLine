@@ -5,6 +5,7 @@ import os
 import sys
 import time
 from collections.abc import AsyncIterator, Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -34,8 +35,16 @@ from .common import (
 
 APP_STREAM_POLL_INTERVAL_SECONDS = 0.02
 APP_SETTLE_DELAY_SECONDS = 0.05
-APP_RESPONSE_TIMEOUT_SECONDS = 45.0
+APP_RESPONSE_TIMEOUT_SECONDS = 20.0
 REPOLINE_ROOT = Path(__file__).resolve().parents[3]
+VOICE_MODE_HINT = (
+    "Voice mode. Answer immediately. No markdown, bold labels, or headings. "
+    "Keep it to one or two short sentences. Ask at most one short question. "
+    "Do not inspect the repo unless the user needs repo-specific facts. "
+    "For questions asking what this repo, project, or app is, answer directly first "
+    "from obvious repo identity and only inspect files if the user asks for more detail. "
+    "Prefer the obvious product or project name over the raw folder name when both are clear."
+)
 
 
 class CursorAppSubmitter(Protocol):
@@ -45,6 +54,7 @@ class CursorAppSubmitter(Protocol):
         workspace_root: str | Path,
         prompt: str,
         command_title: str,
+        submit_mode: str | None,
     ) -> CursorAppSubmitResult: ...
 
 
@@ -63,11 +73,13 @@ class DefaultCursorAppSubmitter:
         workspace_root: str | Path,
         prompt: str,
         command_title: str,
+        submit_mode: str | None,
     ) -> CursorAppSubmitResult:
         return await submit_prompt_to_cursor_app(
             workspace_root=workspace_root,
             prompt=prompt,
             command_title=command_title,
+            submit_mode=submit_mode,
         )
 
 
@@ -83,6 +95,11 @@ def build_cursor_app_submit_command(config: TextStreamConfig) -> list[str]:
         DEFAULT_CURSOR_APP_COMMAND_TITLE,
         "--prompt",
         _build_cursor_app_prompt(config),
+        *(
+            ["--submit-mode", config.provider_submit_mode]
+            if config.provider_submit_mode
+            else []
+        ),
     ]
 
 
@@ -117,12 +134,6 @@ class CursorAppTransport:
             or config.session_id
             or self._composer_id_resolver(workspace_root)
         )
-        known_bubbles = []
-        if requested_composer_id:
-            try:
-                known_bubbles = self._bubble_loader(requested_composer_id)
-            except Exception:
-                known_bubbles = []
         chunker = SentenceChunker(config.chunk_chars)
         assistant_text = ""
         last_activity_at = time.monotonic()
@@ -139,14 +150,15 @@ class CursorAppTransport:
                 workspace_root=workspace_root,
                 prompt=prompt,
                 command_title=DEFAULT_CURSOR_APP_COMMAND_TITLE,
+                submit_mode=config.provider_submit_mode,
             )
         except CursorAppSubmitError as exc:
             raise TextStreamError(str(exc)) from exc
 
         composer_id = submit_result.composer_id
         tail = self._tail_factory(composer_id)
-        if composer_id == requested_composer_id and known_bubbles:
-            tail.seed_known_bubbles(known_bubbles)
+        with suppress(Exception):
+            tail.seed_known_bubbles(self._bubble_loader(composer_id))
 
         yield TextStreamEvent(
             type="status",
@@ -179,6 +191,17 @@ class CursorAppTransport:
                     continue
 
                 saw_assistant = True
+                yield TextStreamEvent(
+                    type="assistant_delta",
+                    text=delta_text,
+                    session_id=composer_id,
+                    trace={
+                        "composer_id": composer_id,
+                        "bubble_id": bubble.bubble_id,
+                        "request_id": bubble.request_id,
+                        "kind": getattr(update, "kind", "update"),
+                    },
+                )
                 assistant_text += delta_text
                 for chunk in chunker.feed(delta_text):
                     yield TextStreamEvent(
@@ -236,12 +259,14 @@ class CursorAppTransport:
 
 def _build_cursor_app_prompt(config: TextStreamConfig) -> str:
     prompt = config.prompt.strip()
-    if config.access_policy != "readonly":
-        return prompt
-    return (
-        "Readonly session. Do not edit files. If asked, say this session is readonly.\n\n"
-        f"{prompt}"
-    )
+    prefix = VOICE_MODE_HINT
+    if config.access_policy == "readonly":
+        prefix = (
+            f"{prefix} Readonly session. Do not edit files. "
+            "If the user asks for edits, say briefly that this session is readonly. "
+            "Do not mention readonly otherwise."
+        )
+    return f"{prefix}\n\n{prompt}"
 
 
 def _tool_artifact_from_bubble(raw: dict[str, Any]) -> UiArtifact | None:

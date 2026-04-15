@@ -42,6 +42,7 @@ class BenchmarkScenario:
     kind: ScenarioKind
     provider: str = "cursor"
     provider_transport: str | None = None
+    provider_submit_mode: str | None = None
     working_directory: str | None = None
     prompt: str | None = None
     turns: tuple[BenchmarkTurnSpec, ...] = ()
@@ -83,6 +84,8 @@ class BenchmarkTurnResult:
     first_status_message: str | None
     first_assistant_ms: float | None
     first_assistant_preview: str | None
+    first_response_ms: float | None
+    first_response_preview: str | None
     first_speech_chunk_ms: float | None
     first_speech_chunk_preview: str | None
     completed_ms: float
@@ -99,6 +102,7 @@ class BenchmarkSummary:
     turn_count: int
     mean_first_status_ms: float | None
     mean_first_assistant_ms: float | None
+    mean_first_response_ms: float | None
     mean_first_speech_chunk_ms: float | None
     mean_completed_ms: float
 
@@ -172,6 +176,7 @@ def _parse_scenario(
         kind=kind,
         provider=provider,
         provider_transport=_optional_string(merged, "provider_transport"),
+        provider_submit_mode=_optional_string(merged, "provider_submit_mode"),
         working_directory=resolved_workdir,
         prompt=prompt,
         turns=turns,
@@ -278,6 +283,7 @@ def build_scenario_config(
         prompt=prompt,
         provider=scenario.provider,  # type: ignore[arg-type]
         provider_transport=scenario.provider_transport,  # type: ignore[arg-type]
+        provider_submit_mode=scenario.provider_submit_mode,
         resume_session_id=resume_session_id,
         system_prompt=system_prompt,
         model=scenario.model,
@@ -300,6 +306,8 @@ async def measure_provider_stream_turn(
     started_at = time.perf_counter()
     first_status_ms: float | None = None
     first_status_message: str | None = None
+    first_assistant_ms: float | None = None
+    first_assistant_preview: str | None = None
     first_speech_chunk_ms: float | None = None
     first_speech_chunk_preview: str | None = None
     session_id = config.resume_session_id
@@ -318,6 +326,12 @@ async def measure_provider_stream_turn(
             if first_status_ms is None:
                 first_status_ms = elapsed_ms
                 first_status_message = event.message
+            continue
+
+        if event.type == "assistant_delta" and event.text:
+            if first_assistant_ms is None:
+                first_assistant_ms = elapsed_ms
+                first_assistant_preview = _preview_text(event.text)
             continue
 
         if event.type == "speech_chunk" and event.text:
@@ -347,8 +361,10 @@ async def measure_provider_stream_turn(
         working_directory=config.working_directory,
         first_status_ms=first_status_ms,
         first_status_message=first_status_message,
-        first_assistant_ms=None,
-        first_assistant_preview=None,
+        first_assistant_ms=first_assistant_ms,
+        first_assistant_preview=first_assistant_preview,
+        first_response_ms=first_speech_chunk_ms or first_assistant_ms,
+        first_response_preview=first_speech_chunk_preview or first_assistant_preview,
         first_speech_chunk_ms=first_speech_chunk_ms,
         first_speech_chunk_preview=first_speech_chunk_preview,
         completed_ms=completed_ms,
@@ -377,6 +393,14 @@ class ProviderCommandAccumulator:
         self.status_count = 0
         self.speech_chunk_count = 0
         self.line_count = 0
+
+    @property
+    def first_response_ms(self) -> float | None:
+        return self.first_speech_chunk_ms or self.first_assistant_ms
+
+    @property
+    def first_response_preview(self) -> str | None:
+        return self.first_speech_chunk_preview or self.first_assistant_preview
 
     def observe_line(self, line: str, *, elapsed_ms: float) -> None:
         self.line_count += 1
@@ -679,6 +703,13 @@ async def measure_provider_command_turn(
         first_status_message=accumulator.first_status_message,
         first_assistant_ms=accumulator.first_assistant_ms,
         first_assistant_preview=accumulator.first_assistant_preview,
+        first_response_ms=(
+            accumulator.first_speech_chunk_ms or accumulator.first_assistant_ms
+        ),
+        first_response_preview=(
+            accumulator.first_speech_chunk_preview
+            or accumulator.first_assistant_preview
+        ),
         first_speech_chunk_ms=accumulator.first_speech_chunk_ms,
         first_speech_chunk_preview=accumulator.first_speech_chunk_preview,
         completed_ms=completed_ms,
@@ -811,6 +842,8 @@ def _timeout_result(
         first_status_message=None,
         first_assistant_ms=None,
         first_assistant_preview=None,
+        first_response_ms=None,
+        first_response_preview=None,
         first_speech_chunk_ms=None,
         first_speech_chunk_preview=None,
         completed_ms=timeout_ms,
@@ -833,6 +866,9 @@ def summarize_turn_results(turns: Iterable[BenchmarkTurnResult]) -> BenchmarkSum
         mean_first_status_ms=_mean(result.first_status_ms for result in turn_list),
         mean_first_assistant_ms=_mean(
             result.first_assistant_ms for result in turn_list
+        ),
+        mean_first_response_ms=_mean(
+            result.first_response_ms for result in turn_list
         ),
         mean_first_speech_chunk_ms=_mean(
             result.first_speech_chunk_ms for result in turn_list
@@ -858,17 +894,20 @@ def format_results(results: Sequence[BenchmarkScenarioResult]) -> str:
     lines: list[str] = []
     for result in results:
         lines.append(f"Scenario: {result.scenario.name} ({result.scenario.kind})")
-        lines.append("turn  repeat  status    assistant  speech    done      preview")
+        lines.append("turn  repeat  status    assistant  response  done      preview")
         for turn in result.turns:
             preview = (
-                turn.first_speech_chunk_preview or turn.first_assistant_preview or "-"
+                turn.first_response_preview
+                or turn.first_speech_chunk_preview
+                or turn.first_assistant_preview
+                or "-"
             )
             lines.append(
                 f"{turn.turn_index:<5} "
                 f"{turn.repeat_index:<7} "
                 f"{_format_ms(turn.first_status_ms):<9} "
                 f"{_format_ms(turn.first_assistant_ms):<10} "
-                f"{_format_ms(turn.first_speech_chunk_ms):<9} "
+                f"{_format_ms(turn.first_response_ms):<9} "
                 f"{_format_ms(turn.completed_ms):<9} "
                 f"{preview}"
             )
@@ -876,8 +915,8 @@ def format_results(results: Sequence[BenchmarkScenarioResult]) -> str:
                 lines.append(f"error: {turn.error_message}")
         lines.append(
             "summary: "
+            f"mean response={_format_ms(result.summary.mean_first_response_ms)}, "
             f"mean assistant={_format_ms(result.summary.mean_first_assistant_ms)}, "
-            f"mean speech={_format_ms(result.summary.mean_first_speech_chunk_ms)}, "
             f"mean done={_format_ms(result.summary.mean_completed_ms)}"
         )
         lines.append("")

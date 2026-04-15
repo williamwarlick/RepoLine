@@ -47,6 +47,7 @@ class TextStreamConfig:
     working_directory: str | None = None
     chunk_chars: int = 140
     access_policy: AccessPolicy = "readonly"
+    provider_submit_mode: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,13 +61,14 @@ class UiArtifact:
 
 @dataclass(frozen=True, slots=True)
 class TextStreamEvent:
-    type: Literal["status", "speech_chunk", "artifact", "error", "done"]
+    type: Literal["status", "speech_chunk", "artifact", "error", "done", "assistant_delta"]
     message: str | None = None
     text: str | None = None
     final: bool = False
     exit_code: int | None = None
     session_id: str | None = None
     artifact: UiArtifact | None = None
+    trace: dict[str, Any] | None = None
 
 
 class SentenceChunker:

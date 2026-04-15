@@ -147,6 +147,16 @@ async function handleSocketRequest(socket, line, workspacePath) {
             : undefined,
       });
       break;
+    case "submitViaComposerHandle":
+      result = await submitViaComposerHandle({
+        workspacePath,
+        prompt: String(request.prompt || ""),
+        composerId:
+          typeof request.composerId === "string" && request.composerId.trim()
+            ? request.composerId.trim()
+            : undefined,
+      });
+      break;
     case "submitFollowupClipboardAndSend":
       result = await submitViaFollowupClipboardAndSend({
         workspacePath,
@@ -251,6 +261,10 @@ async function submitPrompt({ workspacePath, prompt, composerId }) {
 }
 
 async function submitViaComposerHandle({ workspacePath, prompt, composerId }) {
+  if (!composerId) {
+    throw new Error("Cursor bridge could not determine a selected composer ID.");
+  }
+
   const handle = await vscode.commands.executeCommand(
     "composer.getComposerHandleById",
     composerId

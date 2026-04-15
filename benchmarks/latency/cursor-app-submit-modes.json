@@ -1,0 +1,61 @@
+{
+  "defaults": {
+    "provider": "cursor",
+    "working_directory": ".",
+    "model": "composer-2-fast",
+    "thinking_level": "low",
+    "access_policy": "readonly",
+    "chunk_chars": 80,
+    "use_repoline_prompt": true,
+    "repeats": 2
+  },
+  "scenarios": [
+    {
+      "name": "cursor-app-bridge-handle",
+      "kind": "provider_stream",
+      "provider_transport": "app",
+      "provider_submit_mode": "bridge-composer-handle",
+      "turns": [
+        {
+          "label": "turn-1",
+          "prompt": "Say hi in one short sentence."
+        },
+        {
+          "label": "turn-2",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    },
+    {
+      "name": "cursor-app-active-input",
+      "kind": "provider_stream",
+      "provider_transport": "app",
+      "provider_submit_mode": "active-input",
+      "turns": [
+        {
+          "label": "turn-1",
+          "prompt": "Say hi in one short sentence."
+        },
+        {
+          "label": "turn-2",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    },
+    {
+      "name": "cursor-cli",
+      "kind": "provider_stream",
+      "provider_transport": "cli",
+      "turns": [
+        {
+          "label": "turn-1",
+          "prompt": "Say hi in one short sentence."
+        },
+        {
+          "label": "turn-2",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    }
+  ]
+}

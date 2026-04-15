@@ -20,6 +20,7 @@ class BridgeConfig:
     greeting: str
     provider: str
     provider_transport: str | None
+    provider_submit_mode: str | None
     skill_name: str
     tts_pronunciation_skill_name: str
     chunk_chars: int
@@ -83,6 +84,7 @@ class BridgeConfig:
             ),
             provider=provider,
             provider_transport=_resolve_provider_transport(env, provider),
+            provider_submit_mode=_resolve_provider_submit_mode(env, provider),
             skill_name=skill_name,
             tts_pronunciation_skill_name=tts_pronunciation_skill_name,
             chunk_chars=int(env.get("BRIDGE_CHUNK_CHARS", "80")),
@@ -257,6 +259,30 @@ def _resolve_provider_transport(env: Mapping[str, str], provider: str) -> str | 
     if normalized not in {"api", "cli"}:
         raise ValueError(
             "BRIDGE_GEMINI_TRANSPORT must be one of: api, cli"
+        )
+    return normalized
+
+
+def _resolve_provider_submit_mode(
+    env: Mapping[str, str], provider: str
+) -> str | None:
+    if provider != "cursor":
+        return None
+
+    value = _env_optional(env, "BRIDGE_CURSOR_APP_SUBMIT_MODE")
+    if value is None:
+        return None
+
+    normalized = value.lower()
+    if normalized not in {
+        "auto",
+        "active-input",
+        "bridge-composer-handle",
+        "bridge-submit",
+    }:
+        raise ValueError(
+            "BRIDGE_CURSOR_APP_SUBMIT_MODE must be one of: "
+            "auto, active-input, bridge-composer-handle, bridge-submit"
         )
     return normalized
 

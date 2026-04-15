@@ -54,6 +54,7 @@ MonotonicFn = Callable[[], float]
 class TurnCoordinatorConfig:
     provider: str
     provider_transport: str | None
+    provider_submit_mode: str | None
     chunk_chars: int
     model: str | None
     thinking_level: str | None
@@ -69,6 +70,7 @@ class TurnCoordinatorConfig:
         return cls(
             provider=config.provider,
             provider_transport=config.provider_transport,
+            provider_submit_mode=config.provider_submit_mode,
             chunk_chars=config.chunk_chars,
             model=config.model,
             thinking_level=config.thinking_level,
@@ -217,6 +219,7 @@ class TurnCoordinator:
             prompt=user_text,
             provider=self._config.provider,
             provider_transport=self._config.provider_transport,
+            provider_submit_mode=self._config.provider_submit_mode,
             session_id=stream_session_id,
             resume_session_id=self._last_completed_stream_session_id,
             system_prompt=self._config.system_prompt,
@@ -254,6 +257,18 @@ class TurnCoordinator:
                     stream_session_id=active_session_id,
                     message=event.message,
                     latency_ms=round((self._monotonic() - started_at) * 1000, 1),
+                )
+                return None
+
+            if event.type == "assistant_delta" and event.text:
+                self._telemetry.emit(
+                    "model_assistant_delta",
+                    turn_id=turn_id,
+                    provider=self._config.provider,
+                    stream_session_id=active_session_id,
+                    text=event.text,
+                    latency_ms=round((self._monotonic() - started_at) * 1000, 1),
+                    trace=event.trace,
                 )
                 return None
 

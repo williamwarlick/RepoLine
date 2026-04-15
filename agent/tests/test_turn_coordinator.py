@@ -93,6 +93,7 @@ def _config(**overrides: object) -> TurnCoordinatorConfig:
     values: dict[str, object] = {
         "provider": "claude",
         "provider_transport": None,
+        "provider_submit_mode": None,
         "chunk_chars": 8,
         "model": None,
         "thinking_level": "low",
