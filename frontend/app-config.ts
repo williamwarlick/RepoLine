@@ -1,3 +1,10 @@
+import {
+  clampThinkingSoundIntervalMs,
+  clampThinkingSoundVolume,
+  resolveThinkingSoundPreset,
+  type ThinkingSoundPreset,
+} from '@/lib/thinking-sound';
+
 export interface AppConfig {
   pageTitle: string;
   pageDescription: string;
@@ -24,6 +31,9 @@ export interface AppConfig {
   audioVisualizerRadialBarCount?: number;
   audioVisualizerRadialRadius?: number;
   audioVisualizerWaveLineWidth?: number;
+  thinkingSoundPreset?: ThinkingSoundPreset;
+  thinkingSoundVolume?: number;
+  thinkingSoundIntervalMs?: number;
 
   // agent dispatch configuration
   agentName?: string;
@@ -34,6 +44,16 @@ export interface AppConfig {
 
 function readOptionalEnv(key: string): string | undefined {
   return process.env[key]?.trim() || undefined;
+}
+
+function readOptionalNumberEnv(key: string): number | undefined {
+  const value = readOptionalEnv(key);
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 export const APP_CONFIG_DEFAULTS: AppConfig = {
@@ -67,6 +87,14 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   // audioVisualizerType: 'wave',
   // audioVisualizerWaveLineWidth: 3,
   // audioVisualizerType: 'aura',
+  thinkingSoundPreset: resolveThinkingSoundPreset(
+    readOptionalEnv('THINKING_SOUND_PRESET'),
+    process.env.NODE_ENV !== 'production' ? 'soft-pulse' : 'off'
+  ),
+  thinkingSoundVolume: clampThinkingSoundVolume(readOptionalNumberEnv('THINKING_SOUND_VOLUME')),
+  thinkingSoundIntervalMs: clampThinkingSoundIntervalMs(
+    readOptionalNumberEnv('THINKING_SOUND_INTERVAL_MS')
+  ),
 
   // agent dispatch configuration
   agentName: readOptionalEnv('AGENT_NAME'),

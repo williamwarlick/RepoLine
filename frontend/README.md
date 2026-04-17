@@ -26,6 +26,7 @@ This frontend can also be deployed to Vercel as a private hosted deployment.
 - enable Vercel deployment protection if your account supports it
 - set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `NEXT_PUBLIC_APP_URL`
 - set `AGENT_NAME` only if you want explicit dispatch to one named agent; leave it blank to rely on automatic dispatch
+- optionally set `THINKING_SOUND_PRESET`, `THINKING_SOUND_VOLUME`, and `THINKING_SOUND_INTERVAL_MS` if you want a local browser cue while the agent is thinking; local development defaults to `soft-pulse` so it is testable out of the box
 - set `REPOLINE_ACCESS_PIN` to a long random access code before loading the UI or issuing `/api/token`
 - optionally set `REPOLINE_BLOCKED_HOSTS` to the stable public alias so only Vercel-protected deployment URLs stay usable
 - keep the LiveKit agent running somewhere else against the same LiveKit project

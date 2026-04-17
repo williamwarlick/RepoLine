@@ -69,6 +69,9 @@ export function ViewController({ appConfig }: ViewControllerProps) {
           audioVisualizerRadialBarCount={appConfig.audioVisualizerRadialBarCount}
           audioVisualizerRadialRadius={appConfig.audioVisualizerRadialRadius}
           audioVisualizerWaveLineWidth={appConfig.audioVisualizerWaveLineWidth}
+          thinkingSoundPreset={appConfig.thinkingSoundPreset}
+          thinkingSoundVolume={appConfig.thinkingSoundVolume}
+          thinkingSoundIntervalMs={appConfig.thinkingSoundIntervalMs}
           className='fixed inset-0'
         />
       )}

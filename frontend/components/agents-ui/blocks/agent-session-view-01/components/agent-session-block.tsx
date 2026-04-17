@@ -9,8 +9,10 @@ import {
   AgentControlBar,
   type AgentControlBarControls,
 } from '@/components/agents-ui/agent-control-bar';
+import { ThinkingSoundController } from '@/components/agents-ui/thinking-sound-controller';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { cn } from '@/lib/shadcn/utils';
+import type { ThinkingSoundPreset } from '@/lib/thinking-sound';
 import { TileLayout } from './tile-view';
 
 const MotionMessage = motion.create(Shimmer);
@@ -152,6 +154,12 @@ export interface AgentSessionView_01Props {
   audioVisualizerRadialRadius?: number;
   /** Stroke width of the wave path when `audioVisualizerType` is `wave`. */
   audioVisualizerWaveLineWidth?: number;
+  /** Optional preset for a local cue while the agent is thinking. */
+  thinkingSoundPreset?: ThinkingSoundPreset;
+  /** Overall output gain for the local thinking cue. */
+  thinkingSoundVolume?: number;
+  /** Repeat interval in milliseconds; `0` plays only on entry into thinking. */
+  thinkingSoundIntervalMs?: number;
   /** Optional class name merged onto the outer `<section>` container. */
   className?: string;
 }
@@ -172,6 +180,9 @@ export function AgentSessionView_01({
   audioVisualizerRadialBarCount,
   audioVisualizerRadialRadius,
   audioVisualizerWaveLineWidth,
+  thinkingSoundPreset,
+  thinkingSoundVolume,
+  thinkingSoundIntervalMs,
   ref,
   className,
   ...props
@@ -195,6 +206,11 @@ export function AgentSessionView_01({
       className={cn('bg-background relative z-10 h-full w-full overflow-hidden', className)}
       {...props}
     >
+      <ThinkingSoundController
+        preset={thinkingSoundPreset}
+        volume={thinkingSoundVolume}
+        intervalMs={thinkingSoundIntervalMs}
+      />
       <Fade top className='absolute inset-x-4 top-0 z-10 h-40' />
       {/* transcript */}
 
