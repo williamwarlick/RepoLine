@@ -111,6 +111,10 @@ test('buildAgentEnvValues preserves direct speech provider env values', () => {
     BRIDGE_MODEL: DEFAULT_CURSOR_MODEL,
     BRIDGE_CURSOR_TRANSPORT: 'cli',
     BRIDGE_CHUNK_CHARS: '80',
+    BRIDGE_THINKING_SOUND_PRESET: 'soft-pulse',
+    BRIDGE_THINKING_SOUND_INTERVAL_MS: '1800',
+    BRIDGE_THINKING_SOUND_VOLUME: '0.11',
+    BRIDGE_THINKING_SOUND_SIP_ONLY: 'true',
     BRIDGE_SHORT_TRANSCRIPT_WORDS: '2',
     BRIDGE_SHORT_TRANSCRIPT_DEBOUNCE_SECONDS: '0.55',
     BRIDGE_STT_PROVIDER: 'deepgram',
@@ -186,6 +190,32 @@ test('buildAgentEnvValues preserves cursor app transport', () => {
     BRIDGE_CLI_PROVIDER: 'cursor',
     BRIDGE_MODEL: DEFAULT_CURSOR_MODEL,
     BRIDGE_CURSOR_TRANSPORT: 'app',
+  });
+});
+
+test('buildAgentEnvValues preserves thinking sound overrides', () => {
+  expect(
+    buildAgentEnvValues({
+      project: {
+        url: 'wss://example.livekit.cloud',
+        apiKey: 'key',
+        apiSecret: 'secret',
+      },
+      agentName: 'clawdbot-agent',
+      bridgeProvider: 'claude',
+      workdir: '/tmp/demo',
+      existingAgentEnv: {
+        BRIDGE_THINKING_SOUND_PRESET: 'glass',
+        BRIDGE_THINKING_SOUND_INTERVAL_MS: '0',
+        BRIDGE_THINKING_SOUND_VOLUME: '0.22',
+        BRIDGE_THINKING_SOUND_SIP_ONLY: 'false',
+      },
+    })
+  ).toMatchObject({
+    BRIDGE_THINKING_SOUND_PRESET: 'glass',
+    BRIDGE_THINKING_SOUND_INTERVAL_MS: '0',
+    BRIDGE_THINKING_SOUND_VOLUME: '0.22',
+    BRIDGE_THINKING_SOUND_SIP_ONLY: 'false',
   });
 });
 

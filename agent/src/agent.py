@@ -4,9 +4,11 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from dotenv import load_dotenv
+from livekit import rtc
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -99,13 +101,29 @@ class LiveKitTurnSession:
         self,
         content,
         *,
+        audio: AsyncIterator[rtc.AudioFrame] | None = None,
         allow_interruptions: bool = True,
         add_to_chat_ctx: bool = True,
     ):
+        if audio is None:
+            return self._session.say(
+                content,
+                allow_interruptions=allow_interruptions,
+                add_to_chat_ctx=add_to_chat_ctx,
+            )
+
         return self._session.say(
             content,
+            audio=audio,
             allow_interruptions=allow_interruptions,
             add_to_chat_ctx=add_to_chat_ctx,
+        )
+
+    def should_play_server_thinking_sound(self) -> bool:
+        room = self._session.room_io.room
+        return any(
+            participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
+            for participant in room.remote_participants.values()
         )
 
     async def publish_artifact(

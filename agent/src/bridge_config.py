@@ -9,6 +9,14 @@ from repoline_skill import (
     DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
     resolve_repoline_skill_prompt,
 )
+from voice_behavior import (
+    DEFAULT_THINKING_CUE_INTERVAL_MS,
+    DEFAULT_THINKING_CUE_PRESET,
+    DEFAULT_THINKING_CUE_VOLUME,
+    clamp_thinking_cue_interval_ms,
+    clamp_thinking_cue_volume,
+    resolve_thinking_cue_preset,
+)
 
 DEFAULT_CURSOR_MODEL = "composer-2-fast"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
@@ -50,6 +58,10 @@ class BridgeConfig:
     tts_provider: str
     tts_model: str
     tts_voice: str
+    thinking_sound_preset: str
+    thinking_sound_interval_ms: int
+    thinking_sound_volume: float
+    thinking_sound_sip_only: bool
 
     @classmethod
     def load(
@@ -148,6 +160,12 @@ class BridgeConfig:
             tts_provider=tts_provider,
             tts_model=_resolve_tts_model(env, tts_provider),
             tts_voice=_resolve_tts_voice(env, tts_provider),
+            thinking_sound_preset=_resolve_thinking_sound_preset(env),
+            thinking_sound_interval_ms=_resolve_thinking_sound_interval_ms(env),
+            thinking_sound_volume=_resolve_thinking_sound_volume(env),
+            thinking_sound_sip_only=_env_bool(
+                env, "BRIDGE_THINKING_SOUND_SIP_ONLY", True
+            ),
         )
 
 
@@ -222,6 +240,27 @@ def _resolve_thinking_level(env: Mapping[str, str]) -> str | None:
         or _env_optional(env, "BRIDGE_CODEX_REASONING_EFFORT")
         or "low"
     )
+
+
+def _resolve_thinking_sound_preset(env: Mapping[str, str]) -> str:
+    return resolve_thinking_cue_preset(
+        _env_optional(env, "BRIDGE_THINKING_SOUND_PRESET"),
+        DEFAULT_THINKING_CUE_PRESET,
+    )
+
+
+def _resolve_thinking_sound_interval_ms(env: Mapping[str, str]) -> int:
+    raw = _env_optional(env, "BRIDGE_THINKING_SOUND_INTERVAL_MS")
+    if raw is None:
+        return DEFAULT_THINKING_CUE_INTERVAL_MS
+    return clamp_thinking_cue_interval_ms(float(raw))
+
+
+def _resolve_thinking_sound_volume(env: Mapping[str, str]) -> float:
+    raw = _env_optional(env, "BRIDGE_THINKING_SOUND_VOLUME")
+    if raw is None:
+        return DEFAULT_THINKING_CUE_VOLUME
+    return clamp_thinking_cue_volume(float(raw))
 
 
 def _resolve_bridge_model(

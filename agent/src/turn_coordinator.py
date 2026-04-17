@@ -9,6 +9,8 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
+from livekit import rtc
+
 from bridge_config import BridgeConfig
 from model_stream import (
     TextStreamConfig,
@@ -19,6 +21,7 @@ from model_stream import (
 )
 from telemetry import BridgeTelemetry
 from turn_strategy import join_transcript_parts, resolve_pending_turn_delay_seconds
+from voice_behavior import generate_repeating_thinking_cue, is_thinking_cue_enabled
 
 logger = logging.getLogger("repoline-bridge")
 
@@ -36,9 +39,12 @@ class TurnSession(Protocol):
         self,
         content: str | AsyncIterator[str],
         *,
+        audio: AsyncIterator[rtc.AudioFrame] | None = None,
         allow_interruptions: bool = True,
         add_to_chat_ctx: bool = True,
     ) -> SpeechHandle: ...
+
+    def should_play_server_thinking_sound(self) -> bool: ...
 
     async def publish_artifact(
         self, text: str, attributes: dict[str, str]
@@ -64,6 +70,10 @@ class TurnCoordinatorConfig:
     final_transcript_debounce_seconds: float
     short_transcript_word_threshold: int
     short_transcript_debounce_seconds: float
+    thinking_sound_preset: str
+    thinking_sound_interval_ms: int
+    thinking_sound_volume: float
+    thinking_sound_sip_only: bool
 
     @classmethod
     def from_bridge_config(cls, config: BridgeConfig) -> TurnCoordinatorConfig:
@@ -80,6 +90,10 @@ class TurnCoordinatorConfig:
             final_transcript_debounce_seconds=config.final_transcript_debounce_seconds,
             short_transcript_word_threshold=config.short_transcript_word_threshold,
             short_transcript_debounce_seconds=config.short_transcript_debounce_seconds,
+            thinking_sound_preset=config.thinking_sound_preset,
+            thinking_sound_interval_ms=config.thinking_sound_interval_ms,
+            thinking_sound_volume=config.thinking_sound_volume,
+            thinking_sound_sip_only=config.thinking_sound_sip_only,
         )
 
 
@@ -103,6 +117,7 @@ class TurnCoordinator:
 
         self._active_turn_task: asyncio.Task[None] | None = None
         self._active_speech: SpeechHandle | None = None
+        self._active_thinking_sound: SpeechHandle | None = None
         self._pending_turn_task: asyncio.Task[None] | None = None
         self._pending_user_parts: list[str] = []
         self._pending_turn_id: str | None = None
@@ -177,6 +192,7 @@ class TurnCoordinator:
         await self._stop_active_turn()
 
     async def _stop_active_turn(self) -> None:
+        await self._stop_thinking_sound()
         if self._active_speech is not None and not self._active_speech.done():
             with contextlib.suppress(RuntimeError):
                 self._active_speech.interrupt(force=True)
@@ -238,6 +254,7 @@ class TurnCoordinator:
             resume_session_id=self._last_completed_stream_session_id,
             transcript=user_text,
         )
+        self._start_thinking_sound(turn_id=turn_id, stream_session_id=active_session_id)
 
         event_stream = self._stream_events(config)
         speech_handle = None
@@ -361,6 +378,11 @@ class TurnCoordinator:
                     f"{provider_name} finished without producing speech text."
                 )
 
+            await self._stop_thinking_sound(
+                turn_id=turn_id,
+                stream_session_id=active_session_id,
+                reason="speech_started",
+            )
             self._telemetry.emit(
                 "model_first_chunk_ready",
                 turn_id=turn_id,
@@ -405,6 +427,11 @@ class TurnCoordinator:
         except TextStreamError as exc:
             logger.exception("%s stream failed: %s", provider_name, exc)
             message = str(exc).strip() or f"{provider_name} failed before returning a response."
+            await self._stop_thinking_sound(
+                turn_id=turn_id,
+                stream_session_id=active_session_id,
+                reason="error_spoken",
+            )
             speech_handle = self._session.say(
                 message,
                 allow_interruptions=True,
@@ -447,8 +474,73 @@ class TurnCoordinator:
                 error_message=error_message,
                 latency_ms=round((self._monotonic() - started_at) * 1000, 1),
             )
+            await self._stop_thinking_sound(
+                turn_id=turn_id,
+                stream_session_id=active_session_id,
+                reason="turn_finished",
+            )
             if self._active_speech is speech_handle:
                 self._active_speech = None
+
+    def _start_thinking_sound(
+        self,
+        *,
+        turn_id: str,
+        stream_session_id: str | None,
+    ) -> None:
+        if not is_thinking_cue_enabled(self._config.thinking_sound_preset):
+            return
+        if (
+            self._config.thinking_sound_sip_only
+            and not self._session.should_play_server_thinking_sound()
+        ):
+            return
+
+        self._active_thinking_sound = self._session.say(
+            "",
+            audio=generate_repeating_thinking_cue(
+                preset=self._config.thinking_sound_preset,
+                volume=self._config.thinking_sound_volume,
+                interval_ms=self._config.thinking_sound_interval_ms,
+            ),
+            allow_interruptions=True,
+            add_to_chat_ctx=False,
+        )
+        self._telemetry.emit(
+            "thinking_sound_started",
+            turn_id=turn_id,
+            provider=self._config.provider,
+            stream_session_id=stream_session_id,
+            preset=self._config.thinking_sound_preset,
+            interval_ms=self._config.thinking_sound_interval_ms,
+            volume=self._config.thinking_sound_volume,
+        )
+
+    async def _stop_thinking_sound(
+        self,
+        *,
+        turn_id: str | None = None,
+        stream_session_id: str | None = None,
+        reason: str | None = None,
+    ) -> None:
+        handle = self._active_thinking_sound
+        if handle is None:
+            return
+
+        self._active_thinking_sound = None
+        if not handle.done():
+            with contextlib.suppress(RuntimeError):
+                handle.interrupt(force=True)
+            with contextlib.suppress(Exception):
+                await handle.wait_for_playout()
+
+        self._telemetry.emit(
+            "thinking_sound_stopped",
+            turn_id=turn_id,
+            provider=self._config.provider,
+            stream_session_id=stream_session_id,
+            reason=reason,
+        )
 
     async def _flush_pending_turn(self) -> None:
         current_task = asyncio.current_task()

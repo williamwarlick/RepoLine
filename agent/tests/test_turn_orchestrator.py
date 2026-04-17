@@ -55,16 +55,25 @@ class FakeSession:
     def __init__(self) -> None:
         self.string_messages: list[FakeSpeechHandle] = []
         self.stream_messages: list[FakeSpeechHandle] = []
+        self.audio_messages: list[FakeSpeechHandle] = []
         self.artifacts: list[tuple[str, dict[str, str]]] = []
 
     def say(
         self,
         content: str | AsyncIterator[str],
         *,
+        audio=None,
         allow_interruptions: bool = True,
         add_to_chat_ctx: bool = True,
     ) -> FakeSpeechHandle:
         del allow_interruptions, add_to_chat_ctx
+
+        if audio is not None:
+            handle = FakeSpeechHandle(text=content if isinstance(content, str) else None)
+            task = asyncio.create_task(self._consume_audio(audio, handle))
+            handle.attach_consumer(task)
+            self.audio_messages.append(handle)
+            return handle
 
         if isinstance(content, str):
             handle = FakeSpeechHandle(text=content)
@@ -81,11 +90,18 @@ class FakeSession:
     async def publish_artifact(self, text: str, attributes: dict[str, str]) -> None:
         self.artifacts.append((text, attributes))
 
+    def should_play_server_thinking_sound(self) -> bool:
+        return False
+
     async def _consume_stream(
         self, content: AsyncIterator[str], handle: FakeSpeechHandle
     ) -> None:
         async for chunk in content:
             handle.chunks.append(chunk)
+
+    async def _consume_audio(self, content, handle: FakeSpeechHandle) -> None:
+        async for _ in content:
+            handle.chunks.append("audio")
 
 
 class FakeProviderStream:
@@ -101,6 +117,7 @@ def _config(**overrides: object) -> TurnOrchestratorConfig:
     values: dict[str, object] = {
         "provider": "claude",
         "provider_transport": None,
+        "provider_submit_mode": None,
         "chunk_chars": 8,
         "model": None,
         "thinking_level": "low",
@@ -110,6 +127,10 @@ def _config(**overrides: object) -> TurnOrchestratorConfig:
         "final_transcript_debounce_seconds": 0.01,
         "short_transcript_word_threshold": 2,
         "short_transcript_debounce_seconds": 0.03,
+        "thinking_sound_preset": "soft-pulse",
+        "thinking_sound_interval_ms": 1800,
+        "thinking_sound_volume": 0.11,
+        "thinking_sound_sip_only": True,
     }
     values.update(overrides)
     return TurnOrchestratorConfig(**values)

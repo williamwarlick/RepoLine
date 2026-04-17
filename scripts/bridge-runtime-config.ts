@@ -100,6 +100,14 @@ export function buildAgentEnvValues(options: {
       REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
     BRIDGE_SYSTEM_PROMPT: options.existingAgentEnv.BRIDGE_SYSTEM_PROMPT ?? '',
     BRIDGE_CHUNK_CHARS: options.existingAgentEnv.BRIDGE_CHUNK_CHARS ?? '80',
+    BRIDGE_THINKING_SOUND_PRESET:
+      options.existingAgentEnv.BRIDGE_THINKING_SOUND_PRESET ?? 'soft-pulse',
+    BRIDGE_THINKING_SOUND_INTERVAL_MS:
+      options.existingAgentEnv.BRIDGE_THINKING_SOUND_INTERVAL_MS ?? '1800',
+    BRIDGE_THINKING_SOUND_VOLUME:
+      options.existingAgentEnv.BRIDGE_THINKING_SOUND_VOLUME ?? '0.11',
+    BRIDGE_THINKING_SOUND_SIP_ONLY:
+      options.existingAgentEnv.BRIDGE_THINKING_SOUND_SIP_ONLY ?? 'true',
     FINAL_TRANSCRIPT_DEBOUNCE_SECONDS:
       options.existingAgentEnv.FINAL_TRANSCRIPT_DEBOUNCE_SECONDS ?? '0.35',
     BRIDGE_STT_PROVIDER: sttProvider,

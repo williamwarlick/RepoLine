@@ -121,6 +121,10 @@ def test_bridge_config_load_disables_livekit_recording_by_default(
     assert config.livekit_record_traces is False
     assert config.livekit_record_logs is False
     assert config.livekit_record_transcript is False
+    assert config.thinking_sound_preset == "soft-pulse"
+    assert config.thinking_sound_interval_ms == 1800
+    assert config.thinking_sound_volume == pytest.approx(0.11)
+    assert config.thinking_sound_sip_only is True
 
 
 def test_bridge_config_load_defaults_cursor_model_to_composer_2_fast(
@@ -181,6 +185,27 @@ def test_bridge_config_load_supports_gemini_api_transport(tmp_path: Path) -> Non
 
     assert config.provider == "gemini"
     assert config.provider_transport == "api"
+
+
+def test_bridge_config_load_supports_thinking_sound_overrides(tmp_path: Path) -> None:
+    workdir = tmp_path / "repo"
+    _install_skill(workdir, "claude", "repoline-voice-session")
+
+    config = BridgeConfig.load(
+        _base_env(
+            workdir,
+            BRIDGE_THINKING_SOUND_PRESET="glass",
+            BRIDGE_THINKING_SOUND_INTERVAL_MS="0",
+            BRIDGE_THINKING_SOUND_VOLUME="0.22",
+            BRIDGE_THINKING_SOUND_SIP_ONLY="false",
+        ),
+        repo_root=tmp_path,
+    )
+
+    assert config.thinking_sound_preset == "glass"
+    assert config.thinking_sound_interval_ms == 0
+    assert config.thinking_sound_volume == pytest.approx(0.22)
+    assert config.thinking_sound_sip_only is False
 
 
 def test_render_call_greeting_announces_model_and_provider(tmp_path: Path) -> None:

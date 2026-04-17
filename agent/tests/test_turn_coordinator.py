@@ -53,19 +53,29 @@ class FakeSpeechHandle:
 
 
 class FakeSession:
-    def __init__(self) -> None:
+    def __init__(self, *, should_play_server_thinking_sound: bool = False) -> None:
         self.string_messages: list[FakeSpeechHandle] = []
         self.stream_messages: list[FakeSpeechHandle] = []
+        self.audio_messages: list[FakeSpeechHandle] = []
         self.artifacts: list[tuple[str, dict[str, str]]] = []
+        self.should_play_server_thinking_sound_value = should_play_server_thinking_sound
 
     def say(
         self,
         content: str | AsyncIterator[str],
         *,
+        audio=None,
         allow_interruptions: bool = True,
         add_to_chat_ctx: bool = True,
     ) -> FakeSpeechHandle:
         del allow_interruptions, add_to_chat_ctx
+
+        if audio is not None:
+            handle = FakeSpeechHandle(text=content if isinstance(content, str) else None)
+            task = asyncio.create_task(self._consume_audio(audio, handle))
+            handle.attach_consumer(task)
+            self.audio_messages.append(handle)
+            return handle
 
         if isinstance(content, str):
             handle = FakeSpeechHandle(text=content)
@@ -82,11 +92,19 @@ class FakeSession:
     async def publish_artifact(self, text: str, attributes: dict[str, str]) -> None:
         self.artifacts.append((text, attributes))
 
+    def should_play_server_thinking_sound(self) -> bool:
+        return self.should_play_server_thinking_sound_value
+
     async def _consume_stream(
         self, content: AsyncIterator[str], handle: FakeSpeechHandle
     ) -> None:
         async for chunk in content:
             handle.chunks.append(chunk)
+
+    async def _consume_audio(self, content, handle: FakeSpeechHandle) -> None:
+        async for _ in content:
+            handle.chunks.append("audio")
+            await asyncio.sleep(0.001)
 
 
 def _config(**overrides: object) -> TurnCoordinatorConfig:
@@ -103,6 +121,10 @@ def _config(**overrides: object) -> TurnCoordinatorConfig:
         "final_transcript_debounce_seconds": 0.01,
         "short_transcript_word_threshold": 2,
         "short_transcript_debounce_seconds": 0.03,
+        "thinking_sound_preset": "soft-pulse",
+        "thinking_sound_interval_ms": 1800,
+        "thinking_sound_volume": 0.11,
+        "thinking_sound_sip_only": True,
     }
     values.update(overrides)
     return TurnCoordinatorConfig(**values)
@@ -212,7 +234,7 @@ async def test_final_interruption_replaces_active_speech_with_new_turn() -> None
 
 @pytest.mark.asyncio
 async def test_turn_coordinator_skips_bridge_status_for_fast_first_chunk() -> None:
-    session = FakeSession()
+    session = FakeSession(should_play_server_thinking_sound=False)
     telemetry = FakeTelemetry()
 
     async def stream_events(config) -> AsyncIterator[TextStreamEvent]:
@@ -232,5 +254,43 @@ async def test_turn_coordinator_skips_bridge_status_for_fast_first_chunk() -> No
     await coordinator.shutdown()
 
     assert session.string_messages == []
+    assert session.audio_messages == []
     assert not any(event.startswith("bridge_status") for event, _ in telemetry.events)
     assert session.stream_messages[0].chunks == ["First chunk."]
+
+
+@pytest.mark.asyncio
+async def test_turn_coordinator_starts_and_stops_server_thinking_sound_for_phone_turns() -> None:
+    session = FakeSession(should_play_server_thinking_sound=True)
+    telemetry = FakeTelemetry()
+    release_stream = asyncio.Event()
+
+    async def stream_events(config) -> AsyncIterator[TextStreamEvent]:
+        del config
+        await asyncio.sleep(0.02)
+        yield TextStreamEvent(type="speech_chunk", text="Working on it.", session_id="s1")
+        await release_stream.wait()
+        yield TextStreamEvent(type="done", exit_code=0, session_id="s1")
+
+    coordinator = TurnCoordinator(
+        config=_config(),
+        session=session,
+        telemetry=telemetry,
+        stream_events=stream_events,
+    )
+
+    await coordinator.submit_text_turn("Please inspect the repo", source="chat_text")
+    await asyncio.sleep(0.01)
+
+    assert len(session.audio_messages) == 1
+    assert session.audio_messages[0].done() is False
+
+    await asyncio.sleep(0.03)
+    release_stream.set()
+    await asyncio.sleep(0.02)
+    await coordinator.shutdown()
+
+    assert session.audio_messages[0].interrupted is True
+    assert session.stream_messages[0].chunks == ["Working on it."]
+    assert any(event == "thinking_sound_started" for event, _ in telemetry.events)
+    assert any(event == "thinking_sound_stopped" for event, _ in telemetry.events)

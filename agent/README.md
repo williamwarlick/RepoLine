@@ -26,6 +26,8 @@ Use `console` instead of `dev` if you want to test the agent locally without the
 - `REPOLINE_TTS_PRONUNCIATION_SKILL_NAME`
 - `BRIDGE_MODEL`
 - `BRIDGE_THINKING_LEVEL`
+- `BRIDGE_THINKING_SOUND_PRESET`, `BRIDGE_THINKING_SOUND_INTERVAL_MS`, and `BRIDGE_THINKING_SOUND_VOLUME` for the pre-response cue
+- `BRIDGE_THINKING_SOUND_SIP_ONLY` to keep the server-side cue limited to phone/SIP sessions
 - `BRIDGE_ACCESS_POLICY` (`readonly`, `workspace-write`, or `owner`)
 - `BRIDGE_SYSTEM_PROMPT` for explicit overrides
 - `BRIDGE_TELEMETRY_JSONL` to change the local telemetry output path
