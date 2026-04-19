@@ -60,6 +60,8 @@ class SubprocessProcessRunner:
             cwd=working_directory or None,
             env=os.environ.copy(),
         )
+        if proc.stdout is not None:
+            proc.stdout._limit = max(proc.stdout._limit, 1024 * 1024)  # type: ignore[attr-defined]
         return SubprocessJsonlProcess(proc)
 
 

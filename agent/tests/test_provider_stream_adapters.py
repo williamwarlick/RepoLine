@@ -292,6 +292,33 @@ async def test_cursor_adapter_uses_app_transport_when_requested() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cursor_adapter_surfaces_app_transport_error_when_requested() -> None:
+    class FakeFailingCursorAppTransport:
+        async def stream(self, config: TextStreamConfig) -> AsyncIterator[TextStreamEvent]:
+            yield TextStreamEvent(type="status", message="Starting Cursor App stream.")
+            raise TextStreamError("Cursor app submit failed.")
+
+    facade = ProviderStreamFacade(
+        adapters={
+            "cursor": CursorProviderStreamAdapter(
+                app_transport=FakeFailingCursorAppTransport()
+            ),
+        }
+    )
+    with pytest.raises(TextStreamError, match=r"Cursor app submit failed\."):
+        await _collect_events(
+            facade.events(
+                TextStreamConfig(
+                    provider="cursor",
+                    provider_transport="app",
+                    prompt="Hello",
+                ),
+                runner=FakeRunner(FakeProcess([])),
+            )
+        )
+
+
+@pytest.mark.asyncio
 async def test_cursor_adapter_streams_partial_output_fragments_without_duplication() -> None:
     facade = ProviderStreamFacade()
     runner = FakeRunner(

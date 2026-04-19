@@ -1,0 +1,77 @@
+[
+  {
+    "scenario": {
+      "name": "codex-smoke-default-gemini-model",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "provider_transport": null,
+      "provider_submit_mode": null,
+      "working_directory": "/Users/wwarlick/development/agent-phone-bridge",
+      "prompt": "Reply with just the default Gemini model configured in this repo.",
+      "turns": [],
+      "repeats": 1,
+      "model": null,
+      "thinking_level": "low",
+      "access_policy": "readonly",
+      "chunk_chars": 100,
+      "use_repoline_prompt": true,
+      "system_prompt": null,
+      "resume_between_turns": true,
+      "command": null,
+      "timeout_seconds": 90,
+      "task": "default-gemini-model",
+      "variant": "Codex Default",
+      "report_group": "smoke",
+      "expected_exact": "gemini-2.5-flash",
+      "expected_includes": []
+    },
+    "turns": [
+      {
+        "scenario_name": "codex-smoke-default-gemini-model",
+        "scenario_kind": "provider_stream",
+        "repeat_index": 1,
+        "turn_index": 1,
+        "prompt": "Reply with just the default Gemini model configured in this repo.",
+        "turn_label": null,
+        "command": [
+          "codex",
+          "exec",
+          "--json",
+          "--color",
+          "never",
+          "--skip-git-repo-check",
+          "--sandbox",
+          "read-only",
+          "-c",
+          "model_reasoning_effort=\"low\"",
+          "This is a RepoLine voice session.  The user is hearing you over a live phone call or browser voice session. Keep replies brief and easy to hear. Do not default to long bullet lists, numbered lists, or menu-style option dumps. Use one or two short sentences unless the user explicitly asks for structure. Ask at most one concise follow-up question at a time. If you narrate work, make it specific to the action you are actually taking. Do not rely on stock throat-clearing lines just to fill silence. Answer from the current request, recent conversation, and repo context first when you can infer the answer confidently. For questions like 'what is this repo' or 'what does this project do', answer directly first and do not inspect files unless the user asks for more detail. Prefer the obvious product or project name over the raw folder name when both are clear. For conversational planning, brainstorming, or grill-me style turns, give the best immediate answer in the first sentence before doing deeper reasoning. For grill-me style turns, ask only one short question and keep the whole reply to one or two short sentences. Do not use markdown headings, bold labels, labels like 'Question' or 'Recommendation', or long structured lists in voice replies. Do not inspect the repo for those turns unless the user is asking for repo-specific facts. Do not inspect the repo just to restate obvious README-level facts. If you need to inspect files or run commands, say that immediately in one short sentence like 'I need to look around for that,' then do the inspection. Use the `repoline-voice-session` skill silently for spoken phrasing, tool narration, and progress updates. Do not mention the skill name or say that you are using a skill unless the user asks.\n\nImmediate repo context from README.md:\nCall Claude Code, Codex, Cursor, Gemini, and other local coding CLIs from your phone or browser.\nRepoLine is a voice bridge that connects a LiveKit phone or browser session to a coding CLI running in a local repo.\nThe CLI session stays local to your machine, keeps its existing auth and tool access, and speaks results back over voice.\nModel inference still happens wherever your chosen coding CLI normally sends it.\nQuick Start\nPrerequisites:\n- claude, codex, cursor-agent, or gemini for the coding CLI you want to bridge\n- bun\nbun run setup installs the local RepoLine configuration and dependencies, but it does not start the worker or frontend. It can install missing local tools, run lk cloud auth, add a LiveKit project manually, write the local env files, install dependencies, install the RepoLine voice skill into the target repo, and wire phone access. If the project does not have an active LiveKit number yet, setup can search for a US local number and purchase it from the CLI before it creates the dispatch rule.\nFor scripted onboarding and smoke tests, setup also accepts --provider, --project, --workdir, --agent-name, and --skip-phone.\n./scripts/bootstrap.sh is still available if you want RepoLine to install bun, uv, lk, and a supported coding CLI for you, or if you need to repair one missing tool later.\nRun Modes\n- bun run live: normal local use, including real calls\n\nUser request:\nReply with just the default Gemini model configured in this repo."
+        ],
+        "working_directory": "/Users/wwarlick/development/agent-phone-bridge",
+        "first_status_ms": 3.7,
+        "first_status_message": "Starting Codex CLI stream.",
+        "first_assistant_ms": null,
+        "first_assistant_preview": null,
+        "first_response_ms": 12470.8,
+        "first_response_preview": "I need to check the repo config for the default Gemini model.",
+        "response_text": "I need to check the repo config for the default Gemini model. `gemini-2.5-flash`",
+        "first_speech_chunk_ms": 12470.8,
+        "first_speech_chunk_preview": "I need to check the repo config for the default Gemini model.",
+        "completed_ms": 13819.3,
+        "exit_code": 0,
+        "session_id": "019d9c68-dfa1-7480-aef1-33d0fea2ffbe",
+        "error_message": null,
+        "status_count": 4,
+        "speech_chunk_count": 2,
+        "line_count": 0
+      }
+    ],
+    "summary": {
+      "turn_count": 1,
+      "mean_first_status_ms": 3.7,
+      "mean_first_assistant_ms": null,
+      "mean_first_response_ms": 12470.8,
+      "mean_first_speech_chunk_ms": 12470.8,
+      "mean_completed_ms": 13819.3
+    }
+  }
+]

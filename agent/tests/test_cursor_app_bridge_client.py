@@ -9,6 +9,7 @@ import pytest
 from cursor_app_bridge_client import (
     CursorAppBridgeError,
     bridge_state_for_workspace,
+    ensure_cursor_app_bridge,
     load_bridge_state,
     submit_prompt_via_cursor_app_bridge,
 )
@@ -132,3 +133,51 @@ async def test_submit_prompt_via_cursor_app_bridge_raises_on_bridge_error(
     finally:
         server.close()
         await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_ensure_cursor_app_bridge_reuses_live_bridge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launch_calls: list[str] = []
+
+    async def fake_ping(workspace_root: str) -> dict[str, object] | None:
+        return {"selectedComposerId": "composer-123"}
+
+    async def fake_launch(workspace_root: str) -> None:
+        launch_calls.append(workspace_root)
+
+    monkeypatch.setattr("cursor_app_bridge_client.ping_cursor_app_bridge", fake_ping)
+    monkeypatch.setattr("cursor_app_bridge_client._launch_cursor_workspace", fake_launch)
+
+    result = await ensure_cursor_app_bridge("/tmp/repo")
+
+    assert result == {"selectedComposerId": "composer-123"}
+    assert launch_calls == []
+
+
+@pytest.mark.asyncio
+async def test_ensure_cursor_app_bridge_opens_cursor_when_bridge_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = Path("/tmp/repo").resolve()
+    ping_results = [None, None, {"selectedComposerId": "composer-456"}]
+    launch_calls: list[str] = []
+
+    async def fake_ping(workspace_root: str) -> dict[str, object] | None:
+        return ping_results.pop(0)
+
+    async def fake_launch(workspace_root: str) -> None:
+        launch_calls.append(workspace_root)
+
+    async def fake_sleep(_: float) -> None:
+        return None
+
+    monkeypatch.setattr("cursor_app_bridge_client.ping_cursor_app_bridge", fake_ping)
+    monkeypatch.setattr("cursor_app_bridge_client._launch_cursor_workspace", fake_launch)
+    monkeypatch.setattr("cursor_app_bridge_client.asyncio.sleep", fake_sleep)
+
+    result = await ensure_cursor_app_bridge(workspace)
+
+    assert result == {"selectedComposerId": "composer-456"}
+    assert launch_calls == [str(workspace)]

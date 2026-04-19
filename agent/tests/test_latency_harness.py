@@ -31,6 +31,10 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
                         "kind": "provider_stream",
                         "prompt": "What does RepoLine do?",
                         "provider_submit_mode": "bridge-composer-handle",
+                        "task": "repo-summary",
+                        "variant": "Cursor CLI",
+                        "report_group": "core",
+                        "expected_includes": ["RepoLine", "voice bridge"],
                     },
                     {
                         "name": "direct",
@@ -53,6 +57,10 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
     assert plan.scenarios[0].chunk_chars == 120
     assert plan.scenarios[0].provider_submit_mode == "bridge-composer-handle"
     assert plan.scenarios[0].timeout_seconds == 60
+    assert plan.scenarios[0].task == "repo-summary"
+    assert plan.scenarios[0].variant == "Cursor CLI"
+    assert plan.scenarios[0].report_group == "core"
+    assert plan.scenarios[0].expected_includes == ("RepoLine", "voice bridge")
     assert [turn.label for turn in plan.scenarios[1].turns] == ["first", "second"]
 
 
@@ -116,6 +124,7 @@ async def test_measure_provider_stream_turn_tracks_first_chunk_and_done() -> Non
     assert result.first_assistant_preview == "RepoLine is"
     assert result.first_response_preview == "RepoLine is live."
     assert result.first_speech_chunk_preview == "RepoLine is live."
+    assert result.response_text == "RepoLine is live."
     assert result.exit_code == 0
     assert result.session_id == "cursor-session"
     assert result.status_count == 1
@@ -174,6 +183,7 @@ def test_cursor_command_accumulator_tracks_first_assistant_and_chunk() -> None:
     assert accumulator.first_response_preview == "Looking now."
     assert accumulator.first_speech_chunk_ms == 55.0
     assert accumulator.first_speech_chunk_preview == "Looking now."
+    assert accumulator.response_text == "Looking now. RepoLine is a voice bridge."
     assert accumulator.speech_chunk_count == 2
 
 
@@ -221,6 +231,7 @@ def test_provider_command_accumulator_tracks_gemini_first_assistant_and_chunk() 
     assert accumulator.first_response_preview == "Hi there!"
     assert accumulator.first_speech_chunk_ms == 42.0
     assert accumulator.first_speech_chunk_preview == "Hi there!"
+    assert accumulator.response_text == "Hi there!"
     assert accumulator.speech_chunk_count == 1
 
 

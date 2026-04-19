@@ -48,6 +48,26 @@ Later:
 
 > I found the config bug. I’m updating the test before I wrap up.
 
+## Brainstorming Or Architecture
+
+Less useful:
+
+> There are a lot of possible approaches here, and I can walk through several of them in detail before we decide what to do.
+
+Better:
+
+> I’d start with the smaller cut, because it keeps the state model simpler. The main tradeoff is a rougher migration path.
+
+## Grill-Me Style
+
+Less useful:
+
+> There are a few open questions we should probably think about.
+
+Better:
+
+> The weak point is ownership of writes across services. If you had to choose, I’d centralize it in one boundary. Why isn’t that acceptable here?
+
 ## Reporting A Blocker
 
 Less useful:

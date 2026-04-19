@@ -41,6 +41,15 @@ def test_bridge_telemetry_writes_latest_call_summary(tmp_path) -> None:
         turn_id="turn-123",
         message="Starting Codex CLI stream.",
         latency_ms=12.3,
+        stream_session_id="composer-123",
+    )
+    telemetry.emit(
+        "model_assistant_delta",
+        turn_id="turn-123",
+        text="Hello there.",
+        latency_ms=345.6,
+        stream_session_id="composer-123",
+        trace={"request_id": "req-789", "bubble_id": "bubble-456"},
     )
     telemetry.emit("model_first_chunk_ready", turn_id="turn-123", latency_ms=1234.5)
     telemetry.emit("model_speech_chunk", turn_id="turn-123", text="Hello there.")
@@ -64,11 +73,15 @@ def test_bridge_telemetry_writes_latest_call_summary(tmp_path) -> None:
     assert "User: hello" in latest_summary
     assert "Agent:" in latest_summary
     assert "Hello there." in latest_summary
+    assert "Composer Session: composer-123" in latest_summary
+    assert "Cursor Request ID: req-789" in latest_summary
+    assert "First Assistant Delta: 345.6 ms" in latest_summary
     assert "First Spoken Chunk: 1234.5 ms" in latest_summary
     assert "Close Reason: participant_disconnected" in latest_summary
     assert "Latency Trail:" in latest_summary
     assert "Transcript merged" in latest_summary
     assert "First model status 12.3 ms after model start" in latest_summary
+    assert "First assistant delta 345.6 ms after model start" in latest_summary
     assert "Speech playout finished 2001.0 ms after model start" in latest_summary
 
     history_files = list((tmp_path / "calls").glob("*.md"))
