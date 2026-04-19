@@ -9,7 +9,9 @@ from typing import Any
 
 SOCKET_PREFIX = "rlca"
 BRIDGE_CONNECT_TIMEOUT_SECONDS = 1.0
-BRIDGE_RESPONSE_TIMEOUT_SECONDS = 3.0
+BRIDGE_RESPONSE_TIMEOUT_SECONDS = 5.0
+BRIDGE_LAUNCH_TIMEOUT_SECONDS = 20.0
+BRIDGE_LAUNCH_POLL_INTERVAL_SECONDS = 0.25
 
 
 class CursorAppBridgeError(RuntimeError):
@@ -72,6 +74,28 @@ async def ping_cursor_app_bridge(
     return await _request_bridge(state, {"method": "ping"})
 
 
+async def ensure_cursor_app_bridge(
+    workspace_root: str | Path,
+) -> dict[str, Any]:
+    workspace_path = str(Path(workspace_root).expanduser().resolve())
+    status = await ping_cursor_app_bridge(workspace_path)
+    if status is not None:
+        return status
+
+    await _launch_cursor_workspace(workspace_path)
+
+    deadline = asyncio.get_running_loop().time() + BRIDGE_LAUNCH_TIMEOUT_SECONDS
+    while asyncio.get_running_loop().time() < deadline:
+        status = await ping_cursor_app_bridge(workspace_path)
+        if status is not None:
+            return status
+        await asyncio.sleep(BRIDGE_LAUNCH_POLL_INTERVAL_SECONDS)
+
+    raise CursorAppBridgeError(
+        "Cursor bridge did not become available after opening the workspace."
+    )
+
+
 async def request_cursor_app_bridge(
     *,
     workspace_root: str | Path,
@@ -132,6 +156,10 @@ async def _request_bridge(
             reader.readline(),
             timeout=BRIDGE_RESPONSE_TIMEOUT_SECONDS,
         )
+    except asyncio.TimeoutError:
+        raise CursorAppBridgeError(
+            "Cursor bridge timed out waiting for a response."
+        ) from None
     finally:
         writer.close()
         await writer.wait_closed()
@@ -156,3 +184,20 @@ async def _request_bridge(
     if not isinstance(result, dict):
         raise CursorAppBridgeError("Cursor bridge returned an invalid result payload.")
     return result
+
+
+async def _launch_cursor_workspace(workspace_root: str) -> None:
+    open_proc = await asyncio.create_subprocess_exec(
+        "open",
+        "-a",
+        "Cursor",
+        workspace_root,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, open_stderr = await open_proc.communicate()
+    if open_proc.returncode not in {0, None}:
+        message = open_stderr.decode("utf-8", errors="replace").strip()
+        raise CursorAppBridgeError(
+            message or f"Failed to open Cursor for workspace: {workspace_root}"
+        )

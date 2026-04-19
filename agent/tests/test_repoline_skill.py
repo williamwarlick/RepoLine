@@ -39,6 +39,8 @@ Use short spoken replies.
     assert "live phone call or browser voice session" in resolved.prompt
     assert "Do not default to long bullet lists, numbered lists, or menu-style option dumps." in resolved.prompt
     assert "Answer from the current request, recent conversation, and repo context first" in resolved.prompt
+    assert "stay in discussion mode" in resolved.prompt
+    assert "pressure-test the plan instead of agreeing with it" in resolved.prompt
     assert "Immediate repo context from README.md" in resolved.prompt
     assert "RepoLine is a voice bridge for coding agents." in resolved.prompt
 
@@ -104,9 +106,47 @@ alwaysApply: true
     assert resolved.source_path == str(installed_rule)
     assert "RepoLine voice rule" in resolved.prompt
     assert "Ask at most one concise follow-up question at a time." in resolved.prompt
+    assert "give the best immediate answer in the first sentence" in resolved.prompt
+    assert "stay in discussion mode" in resolved.prompt
+    assert "pressure-test the plan instead of agreeing with it" in resolved.prompt
+    assert "Do not use markdown headings" in resolved.prompt
     assert "If you need to inspect files or run commands" in resolved.prompt
     assert "Immediate repo context from README.md" not in resolved.prompt
     assert "live phone call or browser voice session" not in resolved.prompt
+
+
+def test_resolve_repoline_skill_prompt_supports_codex_voice_brainstorming_mode(
+    tmp_path,
+) -> None:
+    workdir = tmp_path / "repo"
+    workdir.mkdir(parents=True)
+    (workdir / "README.md").write_text(
+        "RepoLine is a voice bridge.\n",
+        encoding="utf-8",
+    )
+    installed_skill = (
+        workdir / ".agents" / "skills" / "repoline-voice-session" / "SKILL.md"
+    )
+    installed_skill.parent.mkdir(parents=True)
+    installed_skill.write_text(
+        """---
+name: repoline-voice-session
+description: Example
+---
+""",
+        encoding="utf-8",
+    )
+
+    resolved = resolve_repoline_skill_prompt(
+        provider="codex",
+        working_directory=workdir,
+        explicit_system_prompt=None,
+    )
+
+    assert resolved.mode == "installed"
+    assert "stay in discussion mode" in resolved.prompt
+    assert "one key tradeoff, risk, or assumption" in resolved.prompt
+    assert "pressure-test the plan instead of agreeing with it" in resolved.prompt
 
 
 def test_resolve_repoline_skill_prompt_mentions_tts_pronunciation_skill_when_installed(

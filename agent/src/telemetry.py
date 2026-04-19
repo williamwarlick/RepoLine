@@ -74,6 +74,9 @@ class BridgeTelemetry:
             )
             if turn_id not in self._session.turn_order:
                 self._session.turn_order.append(turn_id)
+            stream_session_id = _string_value(record.get("stream_session_id"))
+            if stream_session_id:
+                turn.stream_session_id = stream_session_id
 
         if event_type == "turn_opened" and turn is not None:
             turn.opened_at = timestamp
@@ -95,6 +98,23 @@ class BridgeTelemetry:
             if turn.first_status_latency_ms is None:
                 turn.first_status_at = timestamp
                 turn.first_status_latency_ms = _float_value(record.get("latency_ms"))
+        elif event_type == "model_assistant_delta" and turn is not None:
+            if turn.first_assistant_delta_latency_ms is None:
+                turn.first_assistant_delta_at = timestamp
+                turn.first_assistant_delta_latency_ms = _float_value(
+                    record.get("latency_ms")
+                )
+                turn.first_assistant_delta_preview = _preview_text(
+                    _string_value(record.get("text"))
+                )
+            trace = record.get("trace")
+            if isinstance(trace, dict):
+                turn.cursor_request_id = (
+                    _string_value(trace.get("request_id")) or turn.cursor_request_id
+                )
+                turn.cursor_bubble_id = (
+                    _string_value(trace.get("bubble_id")) or turn.cursor_bubble_id
+                )
         elif event_type == "model_first_chunk_ready" and turn is not None:
             turn.first_chunk_latency_ms = _float_value(record.get("latency_ms"))
             if turn.first_chunk_at is None:
@@ -159,8 +179,14 @@ class _TurnSummary:
     merged_at: float | None = None
     merged_debounce_seconds: float | None = None
     model_started_at: float | None = None
+    stream_session_id: str | None = None
     first_status_at: float | None = None
     first_status_latency_ms: float | None = None
+    first_assistant_delta_at: float | None = None
+    first_assistant_delta_latency_ms: float | None = None
+    first_assistant_delta_preview: str | None = None
+    cursor_request_id: str | None = None
+    cursor_bubble_id: str | None = None
     user_text: str | None = None
     merged_text: str | None = None
     status_updates: list[str] = field(default_factory=list)
@@ -241,6 +267,14 @@ def _render_session_summary(session: _SessionSummary) -> str:
             lines.append(f"Initial Status: {turn.status_updates[-1]}")
         if turn.followup_updates:
             lines.append(f"Followup Statuses: {' | '.join(turn.followup_updates)}")
+        if turn.stream_session_id:
+            lines.append(f"Composer Session: {turn.stream_session_id}")
+        if turn.cursor_request_id:
+            lines.append(f"Cursor Request ID: {turn.cursor_request_id}")
+        if turn.first_assistant_delta_latency_ms is not None:
+            lines.append(
+                f"First Assistant Delta: {turn.first_assistant_delta_latency_ms:.1f} ms"
+            )
         if turn.first_chunk_latency_ms is not None:
             lines.append(f"First Spoken Chunk: {turn.first_chunk_latency_ms:.1f} ms")
         if turn.total_latency_ms is not None:
@@ -301,6 +335,22 @@ def _render_latency_trail(turn: _TurnSummary) -> list[str]:
             line += f" ({absolute_ms:.1f} ms after turn opened)"
         lines.append(line)
 
+    if turn.first_assistant_delta_latency_ms is not None:
+        line = (
+            f"- First assistant delta {turn.first_assistant_delta_latency_ms:.1f} ms "
+            "after model start"
+        )
+        absolute_ms = _timestamp_delta_ms(
+            turn.first_assistant_delta_at, turn.opened_at
+        )
+        if absolute_ms is not None:
+            line += f" ({absolute_ms:.1f} ms after turn opened)"
+        if turn.cursor_request_id:
+            line += f" [request {turn.cursor_request_id}]"
+        if turn.first_assistant_delta_preview:
+            line += f": {turn.first_assistant_delta_preview}"
+        lines.append(line)
+
     if turn.first_chunk_latency_ms is not None:
         line = f"- First spoken chunk {turn.first_chunk_latency_ms:.1f} ms after model start"
         absolute_ms = _timestamp_delta_ms(turn.first_chunk_at, turn.opened_at)
@@ -349,6 +399,17 @@ def _slugify(value: str) -> str:
         "".join(char.lower() if char.isalnum() else "-" for char in value).strip("-")
         or "session"
     )
+
+
+def _preview_text(value: str | None, limit: int = 120) -> str | None:
+    if not value:
+        return None
+    normalized = " ".join(value.split()).strip()
+    if not normalized:
+        return None
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
 
 
 def _serialize(value: Any) -> Any:

@@ -24,7 +24,8 @@ from .runner import ProcessRunner, terminate_process
 READONLY_MODE_HINT = (
     "Runtime note: this RepoLine session is running in readonly mode. "
     "You may inspect and explain, but do not make file changes. "
-    "If the user asks for edits, say briefly that this session is readonly."
+    "If the user asks for edits, say briefly that this session is readonly. "
+    "Do not mention readonly otherwise."
 )
 
 
