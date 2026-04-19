@@ -1637,7 +1637,7 @@ async function selectBridgeProvider(
     },
     {
       label: 'Gemini CLI',
-      hint: 'Supported CLI path; Gemini API is faster but requires API keys',
+      hint: 'Supported coding-agent CLI path with local repo access',
     },
   ];
   const selection = await ui.selectOption(
@@ -1708,16 +1708,12 @@ function bridgeLoginCommand(provider: BridgeProvider): string[] {
 
 function getProviderAuthStatus(provider: BridgeProvider): { ok: boolean; detail: string } {
   if (provider === 'gemini') {
-    if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
-      return { ok: true, detail: 'API key detected in environment' };
-    }
     if (existsSync(GEMINI_OAUTH_CREDS_PATH)) {
       return { ok: true, detail: GEMINI_OAUTH_CREDS_PATH };
     }
     return {
       ok: false,
-      detail:
-        'No Gemini credentials detected. Run `gemini` once to complete OAuth, or set GEMINI_API_KEY / GOOGLE_API_KEY.',
+      detail: 'No Gemini credentials detected. Run `gemini` once to complete OAuth.',
     };
   }
 

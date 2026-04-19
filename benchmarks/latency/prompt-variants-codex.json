@@ -1,0 +1,119 @@
+{
+  "defaults": {
+    "working_directory": ".",
+    "provider": "codex",
+    "access_policy": "readonly",
+    "chunk_chars": 100,
+    "use_repoline_prompt": true,
+    "thinking_level": "low",
+    "repeats": 3,
+    "timeout_seconds": 120,
+    "report_group": "prompt-variants-codex"
+  },
+  "scenarios": [
+    {
+      "name": "codex-baseline-repo-summary",
+      "kind": "provider_stream",
+      "prompt_variant": "current_baseline",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "codex-baseline-harness-path",
+      "kind": "provider_stream",
+      "prompt_variant": "current_baseline",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "codex-baseline-experimental-path",
+      "kind": "provider_stream",
+      "prompt_variant": "current_baseline",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "experimental-path-1",
+      "prompt": "Which provider path in RepoLine is explicitly experimental right now? Reply with one short sentence."
+    },
+    {
+      "name": "codex-baseline-trivial",
+      "kind": "provider_stream",
+      "prompt_variant": "current_baseline",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "codex-latency-minimal-repo-summary",
+      "kind": "provider_stream",
+      "prompt_variant": "latency_minimal",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "system_prompt": "Answer directly in one short sentence when the request is simple. Avoid repo inspection unless the request clearly requires it.",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "codex-latency-minimal-harness-path",
+      "kind": "provider_stream",
+      "prompt_variant": "latency_minimal",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "system_prompt": "Answer directly in one short sentence when the request is simple. Avoid repo inspection unless the request clearly requires it.",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "codex-latency-minimal-experimental-path",
+      "kind": "provider_stream",
+      "prompt_variant": "latency_minimal",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "experimental-path-1",
+      "system_prompt": "Answer directly in one short sentence when the request is simple. Avoid repo inspection unless the request clearly requires it.",
+      "prompt": "Which provider path in RepoLine is explicitly experimental right now? Reply with one short sentence."
+    },
+    {
+      "name": "codex-latency-minimal-trivial",
+      "kind": "provider_stream",
+      "prompt_variant": "latency_minimal",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "system_prompt": "Answer directly in one short sentence when the request is simple. Avoid repo inspection unless the request clearly requires it.",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "codex-planning-explicit-repo-summary",
+      "kind": "provider_stream",
+      "prompt_variant": "planning_explicit",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "system_prompt": "For planning-style questions, give the plan or direct answer first in one short sentence, then expand only if needed.",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "codex-planning-explicit-harness-path",
+      "kind": "provider_stream",
+      "prompt_variant": "planning_explicit",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "system_prompt": "For planning-style questions, give the plan or direct answer first in one short sentence, then expand only if needed.",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "codex-planning-explicit-experimental-path",
+      "kind": "provider_stream",
+      "prompt_variant": "planning_explicit",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "experimental-path-1",
+      "system_prompt": "For planning-style questions, give the plan or direct answer first in one short sentence, then expand only if needed.",
+      "prompt": "Which provider path in RepoLine is explicitly experimental right now? Reply with one short sentence."
+    },
+    {
+      "name": "codex-planning-explicit-trivial",
+      "kind": "provider_stream",
+      "prompt_variant": "planning_explicit",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "system_prompt": "For planning-style questions, give the plan or direct answer first in one short sentence, then expand only if needed.",
+      "prompt": "Say hi in one short sentence."
+    }
+  ]
+}

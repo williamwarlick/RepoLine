@@ -28,13 +28,13 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
                 "scenarios": [
                     {
                         "name": "stream",
-                        "kind": "provider_stream",
+                "kind": "provider_stream",
                         "prompt": "What does RepoLine do?",
                         "provider_submit_mode": "bridge-composer-handle",
-                        "task": "repo-summary",
-                        "variant": "Cursor CLI",
+                        "latency_archetype": "planning-question",
+                        "prompt_variant": "current_baseline",
+                        "prompt_id": "repo-summary-1",
                         "report_group": "core",
-                        "expected_includes": ["RepoLine", "voice bridge"],
                     },
                     {
                         "name": "direct",
@@ -57,10 +57,10 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
     assert plan.scenarios[0].chunk_chars == 120
     assert plan.scenarios[0].provider_submit_mode == "bridge-composer-handle"
     assert plan.scenarios[0].timeout_seconds == 60
-    assert plan.scenarios[0].task == "repo-summary"
-    assert plan.scenarios[0].variant == "Cursor CLI"
+    assert plan.scenarios[0].latency_archetype == "planning-question"
+    assert plan.scenarios[0].prompt_variant == "current_baseline"
+    assert plan.scenarios[0].prompt_id == "repo-summary-1"
     assert plan.scenarios[0].report_group == "core"
-    assert plan.scenarios[0].expected_includes == ("RepoLine", "voice bridge")
     assert [turn.label for turn in plan.scenarios[1].turns] == ["first", "second"]
 
 
@@ -120,11 +120,11 @@ async def test_measure_provider_stream_turn_tracks_first_chunk_and_done() -> Non
         stream_events=fake_stream,
     )
 
-    assert result.first_status_message == "Starting Cursor Agent stream."
-    assert result.first_assistant_preview == "RepoLine is"
-    assert result.first_response_preview == "RepoLine is live."
-    assert result.first_speech_chunk_preview == "RepoLine is live."
+    assert result.provider_first_status_message == "Starting Cursor Agent stream."
+    assert result.provider_first_assistant_preview == "RepoLine is"
+    assert result.spoken_response_preview == "RepoLine is live."
     assert result.response_text == "RepoLine is live."
+    assert result.outcome == "ok"
     assert result.exit_code == 0
     assert result.session_id == "cursor-session"
     assert result.status_count == 1
@@ -176,13 +176,11 @@ def test_cursor_command_accumulator_tracks_first_assistant_and_chunk() -> None:
     )
 
     assert accumulator.session_id == "cursor-1"
-    assert accumulator.first_status_ms == 12.0
-    assert accumulator.first_assistant_ms == 55.0
-    assert accumulator.first_assistant_preview == "Looking now."
-    assert accumulator.first_response_ms == 55.0
-    assert accumulator.first_response_preview == "Looking now."
-    assert accumulator.first_speech_chunk_ms == 55.0
-    assert accumulator.first_speech_chunk_preview == "Looking now."
+    assert accumulator.provider_first_status_ms == 12.0
+    assert accumulator.provider_first_assistant_delta_ms == 55.0
+    assert accumulator.provider_first_assistant_preview == "Looking now."
+    assert accumulator.spoken_response_latency_ms == 55.0
+    assert accumulator.spoken_response_preview == "Looking now."
     assert accumulator.response_text == "Looking now. RepoLine is a voice bridge."
     assert accumulator.speech_chunk_count == 2
 
@@ -223,14 +221,12 @@ def test_provider_command_accumulator_tracks_gemini_first_assistant_and_chunk() 
     )
 
     assert accumulator.session_id == "gemini-1"
-    assert accumulator.first_status_ms == 10.0
-    assert accumulator.first_status_message == "Gemini CLI started a session."
-    assert accumulator.first_assistant_ms == 42.0
-    assert accumulator.first_assistant_preview == "Hi there!"
-    assert accumulator.first_response_ms == 42.0
-    assert accumulator.first_response_preview == "Hi there!"
-    assert accumulator.first_speech_chunk_ms == 42.0
-    assert accumulator.first_speech_chunk_preview == "Hi there!"
+    assert accumulator.provider_first_status_ms == 10.0
+    assert accumulator.provider_first_status_message == "Gemini CLI started a session."
+    assert accumulator.provider_first_assistant_delta_ms == 42.0
+    assert accumulator.provider_first_assistant_preview == "Hi there!"
+    assert accumulator.spoken_response_latency_ms == 42.0
+    assert accumulator.spoken_response_preview == "Hi there!"
     assert accumulator.response_text == "Hi there!"
     assert accumulator.speech_chunk_count == 1
 
@@ -250,14 +246,12 @@ def test_provider_command_accumulator_tracks_openclaw_plain_output() -> None:
         elapsed_ms=1200.0,
     )
 
-    assert accumulator.first_status_ms == 8.0
-    assert accumulator.first_status_message == "OpenClaw started a session."
-    assert accumulator.first_assistant_ms == 1200.0
-    assert accumulator.first_assistant_preview == "Two plus two equals four."
-    assert accumulator.first_response_ms == 1200.0
-    assert accumulator.first_response_preview == "Two plus two equals four."
-    assert accumulator.first_speech_chunk_ms == 1200.0
-    assert accumulator.first_speech_chunk_preview == "Two plus two equals four."
+    assert accumulator.provider_first_status_ms == 8.0
+    assert accumulator.provider_first_status_message == "OpenClaw started a session."
+    assert accumulator.provider_first_assistant_delta_ms == 1200.0
+    assert accumulator.provider_first_assistant_preview == "Two plus two equals four."
+    assert accumulator.spoken_response_latency_ms == 1200.0
+    assert accumulator.spoken_response_preview == "Two plus two equals four."
 
 
 def test_provider_command_accumulator_tracks_openclaw_json_output() -> None:
@@ -277,9 +271,7 @@ def test_provider_command_accumulator_tracks_openclaw_json_output() -> None:
     )
 
     assert accumulator.session_id == "openclaw-2"
-    assert accumulator.first_assistant_ms == 2300.0
-    assert accumulator.first_assistant_preview == "RepoLine is a voice bridge."
-    assert accumulator.first_response_ms == 2300.0
-    assert accumulator.first_response_preview == "RepoLine is a voice bridge."
-    assert accumulator.first_speech_chunk_ms == 2300.0
-    assert accumulator.first_speech_chunk_preview == "RepoLine is a voice bridge."
+    assert accumulator.provider_first_assistant_delta_ms == 2300.0
+    assert accumulator.provider_first_assistant_preview == "RepoLine is a voice bridge."
+    assert accumulator.spoken_response_latency_ms == 2300.0
+    assert accumulator.spoken_response_preview == "RepoLine is a voice bridge."

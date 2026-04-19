@@ -125,32 +125,6 @@ test('buildAgentEnvValues preserves direct speech provider env values', () => {
   });
 });
 
-test('buildAgentEnvValues preserves direct Gemini API transport credentials', () => {
-  expect(
-    buildAgentEnvValues({
-      project: {
-        url: 'wss://example.livekit.cloud',
-        apiKey: 'key',
-        apiSecret: 'secret',
-      },
-      agentName: 'clawdbot-agent',
-      bridgeProvider: 'gemini',
-      workdir: '/tmp/demo',
-      existingAgentEnv: {
-        BRIDGE_GEMINI_TRANSPORT: 'api',
-        GEMINI_API_KEY: 'gemini-key',
-        GOOGLE_API_KEY: 'google-key',
-      },
-    })
-  ).toMatchObject({
-    BRIDGE_CLI_PROVIDER: 'gemini',
-    BRIDGE_MODEL: DEFAULT_GEMINI_MODEL,
-    BRIDGE_GEMINI_TRANSPORT: 'api',
-    GEMINI_API_KEY: 'gemini-key',
-    GOOGLE_API_KEY: 'google-key',
-  });
-});
-
 test('buildAgentEnvValues defaults Gemini to flash', () => {
   expect(
     buildAgentEnvValues({
@@ -167,7 +141,6 @@ test('buildAgentEnvValues defaults Gemini to flash', () => {
   ).toMatchObject({
     BRIDGE_MODEL: DEFAULT_GEMINI_MODEL,
     BRIDGE_CLI_PROVIDER: 'gemini',
-    BRIDGE_GEMINI_TRANSPORT: 'cli',
   });
 });
 

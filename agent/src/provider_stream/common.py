@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 TextStreamProvider = Literal["claude", "codex", "cursor", "gemini"]
-ProviderTransport = Literal["api", "app", "cli"]
+ProviderTransport = Literal["app", "cli"]
 AccessPolicy = Literal["readonly", "workspace-write", "owner"]
 ArtifactKind = Literal["tool", "code", "diff"]
 
@@ -170,8 +170,6 @@ def provider_display_name(
         if transport == "app":
             return "Cursor App"
         return "Cursor Agent"
-    if provider == "gemini" and transport == "api":
-        return "Gemini API"
     return "Gemini CLI"
 
 

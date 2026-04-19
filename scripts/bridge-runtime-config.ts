@@ -86,8 +86,6 @@ export function buildAgentEnvValues(options: {
           : ''),
     BRIDGE_CURSOR_TRANSPORT:
       options.existingAgentEnv.BRIDGE_CURSOR_TRANSPORT ?? 'cli',
-    BRIDGE_GEMINI_TRANSPORT:
-      options.existingAgentEnv.BRIDGE_GEMINI_TRANSPORT ?? 'cli',
     BRIDGE_THINKING_LEVEL:
       options.existingAgentEnv.BRIDGE_THINKING_LEVEL ??
       options.existingAgentEnv.BRIDGE_CODEX_REASONING_EFFORT ??
@@ -117,8 +115,6 @@ export function buildAgentEnvValues(options: {
       options.existingAgentEnv.BRIDGE_SHORT_TRANSCRIPT_DEBOUNCE_SECONDS ?? '0.55',
     LIVEKIT_STT_MODEL: options.existingAgentEnv.LIVEKIT_STT_MODEL ?? 'deepgram/nova-3',
     LIVEKIT_STT_LANGUAGE: options.existingAgentEnv.LIVEKIT_STT_LANGUAGE ?? 'multi',
-    GEMINI_API_KEY: options.existingAgentEnv.GEMINI_API_KEY ?? '',
-    GOOGLE_API_KEY: options.existingAgentEnv.GOOGLE_API_KEY ?? '',
     DEEPGRAM_API_KEY: options.existingAgentEnv.DEEPGRAM_API_KEY ?? '',
     DEEPGRAM_STT_MODEL: options.existingAgentEnv.DEEPGRAM_STT_MODEL ?? 'nova-3',
     LIVEKIT_TTS_MODEL: options.existingAgentEnv.LIVEKIT_TTS_MODEL ?? 'cartesia/sonic-3',

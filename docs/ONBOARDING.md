@@ -1,10 +1,6 @@
 # Onboarding And Defaults
 
-Use this page for first-run setup decisions. It answers three questions:
-
-1. What should a new user start with?
-2. What does `bun run setup` actually write by default?
-3. Which provider paths are recommended, merely supported, or still experimental?
+Use this page for first-run setup decisions and the public support matrix.
 
 Current guidance on this page reflects the repo state on April 19, 2026.
 
@@ -20,28 +16,13 @@ For a new user, keep the first run boring:
 
 That path avoids the main onboarding traps:
 
-- `Claude Code` is supported, but it has not been revalidated recently enough to make it the default recommendation
-- `Cursor App` transport is experimental and version-sensitive
-- `Gemini API` is fast, but it adds API-key setup that is not necessary for a clean first run
+- `Claude Code` is currently stale support, not a default recommendation
+- `Cursor App` is experimental and version-sensitive
+- `Gemini CLI` is supported, but not the baseline path we want new users to start with
 
-## What `bun run setup` Does
+## What `bun run setup` Writes
 
-Setup:
-
-- checks for `lk`, `uv`, `bun`, and the selected coding CLI
-- offers install/bootstrap help for missing tools
-- verifies provider authentication
-- links or imports a LiveKit project
-- writes `agent/.env.local`, `frontend/.env.local`, and `.bridge/state.json`
-- installs the RepoLine voice skill and TTS pronunciation skill into the selected workdir
-- installs agent and frontend dependencies
-- optionally attaches or purchases a LiveKit phone number and creates dispatch wiring
-
-If env files already exist, setup preserves existing overrides where possible and rewrites the generated files with the current project/provider/workdir values.
-
-## Defaults Written By Setup
-
-These are the baseline values written by `scripts/bridge-runtime-config.ts` unless you already have an override in `agent/.env.local` or `frontend/.env.local`.
+These are the baseline generated defaults unless an existing env file already overrides them.
 
 ### Agent defaults
 
@@ -50,7 +31,6 @@ These are the baseline values written by `scripts/bridge-runtime-config.ts` unle
 | `BRIDGE_CLI_PROVIDER` | the provider you choose in setup |
 | `BRIDGE_MODEL` | empty for `claude` and `codex`; `composer-2-fast` for `cursor`; `gemini-2.5-flash` for `gemini` |
 | `BRIDGE_CURSOR_TRANSPORT` | `cli` |
-| `BRIDGE_GEMINI_TRANSPORT` | `cli` |
 | `BRIDGE_THINKING_LEVEL` | `low` |
 | `BRIDGE_ACCESS_POLICY` | `readonly` |
 | `REPOLINE_SKILL_NAME` | `repoline-voice-session` |
@@ -80,45 +60,17 @@ These are the baseline values written by `scripts/bridge-runtime-config.ts` unle
 | `AGENT_NAME` | the agent name chosen in setup |
 | frontend bind host at runtime | `127.0.0.1` unless you explicitly opt into remote access |
 
-## Recommended Versus Supported
+## Support Matrix
 
-Use this table to decide what to put in front of a new user.
+`Supported` here means recently validated with checked-in evidence and a tested date. Code presence alone is not enough.
 
-| Path | Onboarding status | Why |
-| --- | --- | --- |
-| `Codex CLI` | recommended default | lowest-ceremony first run in this repo; no extra transport flags; avoids Cursor App brittleness |
-| `Gemini API` | recommended after baseline setup | best current voice-latency path when you are willing to manage `GEMINI_API_KEY` or `GOOGLE_API_KEY` |
-| `Gemini CLI` | supported | works with the same setup flow, but voice latency is worse than the direct API path |
-| `Cursor Agent` CLI transport | supported | reasonable if the user already lives in Cursor; use `cli` transport first |
-| `Cursor App` transport | experimental | depends on an open Cursor desktop session, local bridge state, and current app compatibility |
-| `Claude Code` | supported but not current default | keep support for existing Claude users, but rerun the core benchmark matrix before making it the recommended path again |
-
-## Tested And Revalidation Guidance
-
-The repo now has benchmark plans for all major provider families, but recommendation strength is not the same across them.
-
-- Treat `Codex CLI` as the current onboarding baseline.
-- Treat `Gemini API` as the current latency-focused upgrade path.
-- Revalidate `Claude Code` before advertising it as the default recommendation again.
-- Do not describe `Cursor App` as stable onboarding until it has a compatibility story that is less sensitive to the current Cursor desktop build.
-
-If you want to refresh the recommendation table, rerun:
-
-```bash
-bun run benchmark:latency benchmarks/latency/model-matrix-core.json \
-  --json-out output/latency/model-matrix-core.json
-python3 ./scripts/latency_report.py output/latency/model-matrix-core.json \
-  --markdown-out output/latency/model-matrix-core.md
-```
-
-Run the extended matrix only after the local transport is ready:
-
-```bash
-bun run benchmark:latency benchmarks/latency/model-matrix-extended.json \
-  --json-out output/latency/model-matrix-extended.json
-python3 ./scripts/latency_report.py output/latency/model-matrix-extended.json \
-  --markdown-out output/latency/model-matrix-extended.md
-```
+| Path | Public status | Last validated | Evidence | Notes |
+| --- | --- | --- | --- | --- |
+| `Codex CLI` | validated support, recommended default | `2026-04-19` | targeted Python and Bun setup/runtime tests; default harness pack at [`benchmarks/latency/planning-latency-core.json`](../benchmarks/latency/planning-latency-core.json) | best current onboarding path |
+| `Cursor Agent` CLI transport | validated support | `2026-04-19` | targeted Python and Bun setup/runtime tests; default harness pack at [`benchmarks/latency/planning-latency-core.json`](../benchmarks/latency/planning-latency-core.json) | supported, but not the default onboarding recommendation |
+| `Gemini CLI` | validated support | `2026-04-19` | targeted Python and Bun setup/runtime tests; default harness pack at [`benchmarks/latency/planning-latency-core.json`](../benchmarks/latency/planning-latency-core.json) | supported coding-agent path with local repo access |
+| `Cursor App` transport | experimental | `2026-04-19` | targeted setup/runtime test coverage | keep out of the default first-run path because it depends on the current Cursor desktop build and a live local app session |
+| `Claude Code` | stale support | `2026-04-15` | older checked-in benchmark work; no fresh validation in the current cut | keep visible in the matrix, but do not treat it as currently validated |
 
 ## Recommended Onboarding Flow
 
@@ -127,4 +79,5 @@ python3 ./scripts/latency_report.py output/latency/model-matrix-extended.json \
 3. Run `bun run doctor`.
 4. Run `bun run live` and verify the browser session on `http://127.0.0.1:3000`.
 5. Re-run `bun run setup` without `--skip-phone` only after the local path is confirmed.
-6. Move to `Gemini API` or `Cursor App` only as an explicit optimization pass, not as the initial install path.
+6. Move to `Gemini CLI` or `Cursor Agent` only as an explicit comparison or optimization pass.
+7. Treat `Cursor App` as an experiment, not as part of the baseline onboarding story.

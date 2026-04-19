@@ -1,73 +1,95 @@
 # Benchmarking And Evals
 
-RepoLine already has a latency harness. What was missing was a consistent way to compare models, transports, and variants without turning the results into a pile of screenshots and ad hoc notes.
+RepoLine's current eval work is a local latency harness for coding agents. It is not a public scorecard product yet, and it is not trying to do rich answer-quality grading.
 
-This guide defines the benchmark shape to use going forward.
+## Current Goal
 
-## What To Measure
+Use the harness to answer practical questions:
 
-Use multidimensional evaluation, not a single "fastest model wins" number.
+- which coding-agent path starts speaking sooner
+- whether the slowdown is before the first assistant delta or after it
+- which prompt variant is faster for a given model
+- how much warm-session reuse changes the result
 
-- `success rate`: turns that exit cleanly and produce usable spoken text
-- `eval pass rate`: turns that satisfy an objective check like exact match or required string includes
-- `time to first spoken chunk`: the voice UX number that matters most in a phone or browser session
-- `time to completed turn`: useful for total turn cost, but secondary to first spoken chunk
-- `cold` versus `warm`: measure them separately, because resumed sessions often behave very differently from fresh turns
+## Canonical Output
 
-## Task Mix
+The canonical artifact is one JSONL turn record per run.
 
-Use at least two task families in every comparison suite:
+Each record carries:
 
-- `voice UX tasks`: short natural prompts like `What does RepoLine do in one short sentence?`
-- `objective lookup tasks`: prompts with exact or string-match expectations, like `Reply with just the path to the RepoLine Python latency harness wrapper script.`
+- provider path and model
+- `prompt_variant`
+- `latency_archetype`
+- `prompt_id`
+- `session_state`
+- outcome classification
+- explicit timing buckets
 
-That mix lets us see whether a variant is both fast and correct.
+The timing buckets are:
 
-## Visualization Rules
+- `provider_first_status_ms`
+- `provider_first_assistant_delta_ms`
+- `spoken_response_latency_ms`
+- `completed_turn_ms`
 
-Use charts to answer a narrow question, not to dump every metric into one figure.
+Public language should use `spoken_response_latency_ms` as the headline latency. `provider_first_assistant_delta_ms` is diagnostic.
 
-- Make one latency chart per task
-- Sort bars from fastest to slowest
-- Keep `success rate` and `eval pass rate` in the table even if the chart focuses on latency
-- Do not mix cold and warm runs in the same bar chart
-- Keep labels short and stable with explicit `variant` metadata in the benchmark plan
-- Always include sample size `n`
+## Outcome States
 
-## Benchmark Plans
+The harness keeps a minimal floor so broken fast paths do not look good:
 
-- [`benchmarks/latency/model-matrix-core.json`](../benchmarks/latency/model-matrix-core.json): portable provider and model comparison across the main CLI-backed variants
-- [`benchmarks/latency/model-matrix-extended.json`](../benchmarks/latency/model-matrix-extended.json): optional app/API transport variants that depend on extra local setup
-- [`benchmarks/latency/codex-conversation.json`](../benchmarks/latency/codex-conversation.json): warm-turn conversation benchmark
+- `ok`
+- `no_speech`
+- `timed_out`
+- `provider_error`
+- `interrupted`
 
-## Run The Core Matrix
+## Prompt And Task Dimensions
+
+The harness now treats these as first-class:
+
+- `prompt_variant`
+  - `current_baseline`
+  - `latency_minimal`
+  - `planning_explicit`
+- `latency_archetype`
+  - `trivial-conversation`
+  - `repo-lookup`
+  - `planning-question`
+  - `light-investigation`
+- `session_state`
+  - `fresh`
+  - `warm`
+
+Do not average `fresh` and `warm` together when making recommendations.
+
+## Canonical Plans
+
+- [`benchmarks/latency/planning-latency-core.json`](../benchmarks/latency/planning-latency-core.json): default coding-agent comparison pack
+- [`benchmarks/latency/prompt-variants-codex.json`](../benchmarks/latency/prompt-variants-codex.json): prompt-engineering pack for Codex
+
+## Run The Core Pack
 
 ```bash
-bun run benchmark:latency benchmarks/latency/model-matrix-core.json \
-  --json-out output/latency/model-matrix-core.json
-python3 ./scripts/latency_report.py output/latency/model-matrix-core.json \
-  --markdown-out output/latency/model-matrix-core.md
+bun run benchmark:latency benchmarks/latency/planning-latency-core.json \
+  --json-out output/latency/planning-latency-core.jsonl
+python3 ./scripts/latency_report.py output/latency/planning-latency-core.jsonl \
+  --markdown-out output/latency/planning-latency-core.md
 ```
 
-## Run The Extended Matrix
-
-Use this only when the corresponding local transport is ready:
-
-- Cursor app variants require a live Cursor desktop session on the target workspace
-- Gemini API variants require `GEMINI_API_KEY` or `GOOGLE_API_KEY`
+## Run The Prompt-Variant Pack
 
 ```bash
-bun run benchmark:latency benchmarks/latency/model-matrix-extended.json \
-  --json-out output/latency/model-matrix-extended.json
-python3 ./scripts/latency_report.py output/latency/model-matrix-extended.json \
-  --markdown-out output/latency/model-matrix-extended.md
+bun run benchmark:latency benchmarks/latency/prompt-variants-codex.json \
+  --json-out output/latency/prompt-variants-codex.jsonl
+python3 ./scripts/latency_report.py output/latency/prompt-variants-codex.jsonl \
+  --markdown-out output/latency/prompt-variants-codex.md
 ```
 
 ## Interpretation
 
-- Compare `success rate` first
-- Compare `eval pass rate` second
-- Compare `time to first spoken chunk` third
-- Use `time to completed turn` as supporting context
-
-If two variants are close on latency, prefer the one with higher pass rates and simpler operational requirements.
+- compare `ok` rate before comparing latency
+- compare `median` and `p90`, not just average
+- use `spoken_response_latency_ms` for recommendation decisions
+- use `provider_first_assistant_delta_ms` to understand where the time is going
+- treat prompt-variant experiments as provider-specific unless the data shows they generalize

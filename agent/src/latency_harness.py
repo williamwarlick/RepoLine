@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import time
 from collections.abc import AsyncIterator, Callable, Iterable, Sequence
@@ -27,6 +28,14 @@ from provider_stream.common import (
 from repoline_skill import resolve_repoline_skill_prompt
 
 ScenarioKind = Literal["provider_stream", "provider_command", "cursor_command"]
+SessionState = Literal["fresh", "warm"]
+BenchmarkOutcome = Literal[
+    "ok",
+    "no_speech",
+    "timed_out",
+    "provider_error",
+    "interrupted",
+]
 StreamEventsFactory = Callable[[TextStreamConfig], AsyncIterator[TextStreamEvent]]
 
 
@@ -34,6 +43,7 @@ StreamEventsFactory = Callable[[TextStreamConfig], AsyncIterator[TextStreamEvent
 class BenchmarkTurnSpec:
     prompt: str
     label: str | None = None
+    prompt_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,18 +66,17 @@ class BenchmarkScenario:
     resume_between_turns: bool = True
     command: tuple[str, ...] | None = None
     timeout_seconds: int = 60
-    task: str | None = None
-    variant: str | None = None
+    latency_archetype: str | None = None
+    prompt_variant: str | None = None
+    prompt_id: str | None = None
     report_group: str | None = None
-    expected_exact: str | None = None
-    expected_includes: tuple[str, ...] = ()
 
     def resolved_turns(self) -> tuple[BenchmarkTurnSpec, ...]:
         if self.turns:
             return self.turns
         if self.prompt is None:
             raise ValueError(f"scenario `{self.name}` is missing `prompt` or `turns`")
-        return (BenchmarkTurnSpec(prompt=self.prompt),)
+        return (BenchmarkTurnSpec(prompt=self.prompt, prompt_id=self.prompt_id),)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,22 +88,31 @@ class BenchmarkPlan:
 class BenchmarkTurnResult:
     scenario_name: str
     scenario_kind: ScenarioKind
+    provider: str
+    provider_transport: str | None
+    model: str | None
+    thinking_level: str | None
+    access_policy: str
+    report_group: str | None
+    latency_archetype: str | None
+    prompt_variant: str | None
+    prompt_id: str
+    session_state: SessionState
     repeat_index: int
     turn_index: int
     prompt: str
     turn_label: str | None
     command: tuple[str, ...] | None
     working_directory: str | None
-    first_status_ms: float | None
-    first_status_message: str | None
-    first_assistant_ms: float | None
-    first_assistant_preview: str | None
-    first_response_ms: float | None
-    first_response_preview: str | None
+    outcome: BenchmarkOutcome
+    provider_first_status_ms: float | None
+    provider_first_status_message: str | None
+    provider_first_assistant_delta_ms: float | None
+    provider_first_assistant_preview: str | None
+    spoken_response_latency_ms: float | None
+    spoken_response_preview: str | None
+    completed_turn_ms: float
     response_text: str | None
-    first_speech_chunk_ms: float | None
-    first_speech_chunk_preview: str | None
-    completed_ms: float
     exit_code: int | None
     session_id: str | None
     error_message: str | None
@@ -106,11 +124,17 @@ class BenchmarkTurnResult:
 @dataclass(frozen=True, slots=True)
 class BenchmarkSummary:
     turn_count: int
-    mean_first_status_ms: float | None
-    mean_first_assistant_ms: float | None
-    mean_first_response_ms: float | None
-    mean_first_speech_chunk_ms: float | None
-    mean_completed_ms: float
+    ok_turn_count: int
+    no_speech_count: int
+    timed_out_count: int
+    provider_error_count: int
+    interrupted_count: int
+    median_provider_first_assistant_delta_ms: float | None
+    p90_provider_first_assistant_delta_ms: float | None
+    median_spoken_response_latency_ms: float | None
+    p90_spoken_response_latency_ms: float | None
+    median_completed_turn_ms: float
+    p90_completed_turn_ms: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,11 +220,10 @@ def _parse_scenario(
         resume_between_turns=bool(merged.get("resume_between_turns", True)),
         command=command,
         timeout_seconds=_optional_int(merged, "timeout_seconds", default=60),
-        task=_optional_string(merged, "task"),
-        variant=_optional_string(merged, "variant"),
+        latency_archetype=_optional_string(merged, "latency_archetype"),
+        prompt_variant=_optional_string(merged, "prompt_variant"),
+        prompt_id=_optional_string(merged, "prompt_id"),
         report_group=_optional_string(merged, "report_group"),
-        expected_exact=_optional_string(merged, "expected_exact"),
-        expected_includes=_parse_string_list(merged.get("expected_includes")),
     )
 
 
@@ -222,7 +245,11 @@ def _parse_turns(value: Any) -> tuple[BenchmarkTurnSpec, ...]:
             raise ValueError("turns entries must be strings or objects")
         prompt = _require_string(entry, "prompt")
         turns.append(
-            BenchmarkTurnSpec(prompt=prompt, label=_optional_string(entry, "label"))
+            BenchmarkTurnSpec(
+                prompt=prompt,
+                label=_optional_string(entry, "label"),
+                prompt_id=_optional_string(entry, "prompt_id"),
+            )
         )
     return tuple(turns)
 
@@ -237,16 +264,6 @@ def _parse_command(value: Any) -> tuple[str, ...] | None:
     ):
         raise ValueError("`command` must be a non-empty array of strings")
     return tuple(item for item in value if item)
-
-
-def _parse_string_list(value: Any) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise ValueError("`expected_includes` must be an array of strings")
-
-    cleaned = [item.strip() for item in value if item.strip()]
-    return tuple(cleaned)
 
 
 def _require_string(payload: dict[str, Any], key: str) -> str:
@@ -322,15 +339,20 @@ async def measure_provider_stream_turn(
     repeat_index: int,
     turn_index: int,
     turn_label: str | None = None,
+    session_state: SessionState = "fresh",
+    prompt_id: str | None = None,
+    prompt_variant: str | None = None,
+    latency_archetype: str | None = None,
+    report_group: str | None = None,
     stream_events: StreamEventsFactory = stream_text_events,
 ) -> BenchmarkTurnResult:
     started_at = time.perf_counter()
     first_status_ms: float | None = None
     first_status_message: str | None = None
-    first_assistant_ms: float | None = None
+    first_assistant_delta_ms: float | None = None
     first_assistant_preview: str | None = None
-    first_speech_chunk_ms: float | None = None
-    first_speech_chunk_preview: str | None = None
+    spoken_response_latency_ms: float | None = None
+    spoken_response_preview: str | None = None
     speech_chunks: list[str] = []
     assistant_fragments: list[str] = []
     session_id = config.resume_session_id
@@ -353,17 +375,17 @@ async def measure_provider_stream_turn(
 
         if event.type == "assistant_delta" and event.text:
             assistant_fragments.append(event.text)
-            if first_assistant_ms is None:
-                first_assistant_ms = elapsed_ms
+            if first_assistant_delta_ms is None:
+                first_assistant_delta_ms = elapsed_ms
                 first_assistant_preview = _preview_text(event.text)
             continue
 
         if event.type == "speech_chunk" and event.text:
             speech_chunk_count += 1
             speech_chunks.append(event.text)
-            if first_speech_chunk_ms is None:
-                first_speech_chunk_ms = elapsed_ms
-                first_speech_chunk_preview = _preview_text(event.text)
+            if spoken_response_latency_ms is None:
+                spoken_response_latency_ms = elapsed_ms
+                spoken_response_preview = _preview_text(event.text)
             continue
 
         if event.type == "error":
@@ -374,30 +396,44 @@ async def measure_provider_stream_turn(
         if event.type == "done":
             exit_code = event.exit_code
 
-    completed_ms = _elapsed_ms(started_at)
+    completed_turn_ms = _elapsed_ms(started_at)
     response_text = _coalesce_response_text(
         speech_chunks=speech_chunks,
         assistant_fragments=assistant_fragments,
     )
+    outcome = _classify_outcome(
+        error_message=error_message,
+        exit_code=exit_code,
+        response_text=response_text,
+    )
     return BenchmarkTurnResult(
         scenario_name=scenario_name,
         scenario_kind="provider_stream",
+        provider=config.provider,
+        provider_transport=config.provider_transport,
+        model=config.model,
+        thinking_level=config.thinking_level,
+        access_policy=config.access_policy,
+        report_group=report_group,
+        latency_archetype=latency_archetype,
+        prompt_variant=prompt_variant,
+        prompt_id=prompt_id or turn_label or scenario_name,
+        session_state=session_state,
         repeat_index=repeat_index,
         turn_index=turn_index,
         prompt=config.prompt,
         turn_label=turn_label,
         command=tuple(build_stream_command(config)),
         working_directory=config.working_directory,
-        first_status_ms=first_status_ms,
-        first_status_message=first_status_message,
-        first_assistant_ms=first_assistant_ms,
-        first_assistant_preview=first_assistant_preview,
-        first_response_ms=first_speech_chunk_ms or first_assistant_ms,
-        first_response_preview=first_speech_chunk_preview or first_assistant_preview,
+        outcome=outcome,
+        provider_first_status_ms=first_status_ms,
+        provider_first_status_message=first_status_message,
+        provider_first_assistant_delta_ms=first_assistant_delta_ms,
+        provider_first_assistant_preview=first_assistant_preview,
+        spoken_response_latency_ms=spoken_response_latency_ms,
+        spoken_response_preview=spoken_response_preview,
+        completed_turn_ms=completed_turn_ms,
         response_text=response_text,
-        first_speech_chunk_ms=first_speech_chunk_ms,
-        first_speech_chunk_preview=first_speech_chunk_preview,
-        completed_ms=completed_ms,
         exit_code=exit_code,
         session_id=session_id,
         error_message=error_message,
@@ -408,29 +444,21 @@ async def measure_provider_stream_turn(
 
 
 class ProviderCommandAccumulator:
-    def __init__(self, *, provider: TextStreamProvider, chunk_chars: int) -> None:
+    def __init__(self, *, provider: str, chunk_chars: int) -> None:
         self._provider = provider
         self._chunker = SentenceChunker(chunk_chars)
         self._assistant_text = ""
         self.session_id: str | None = None
-        self.first_status_ms: float | None = None
-        self.first_status_message: str | None = None
-        self.first_assistant_ms: float | None = None
-        self.first_assistant_preview: str | None = None
-        self.first_speech_chunk_ms: float | None = None
-        self.first_speech_chunk_preview: str | None = None
+        self.provider_first_status_ms: float | None = None
+        self.provider_first_status_message: str | None = None
+        self.provider_first_assistant_delta_ms: float | None = None
+        self.provider_first_assistant_preview: str | None = None
+        self.spoken_response_latency_ms: float | None = None
+        self.spoken_response_preview: str | None = None
         self.error_message: str | None = None
         self.status_count = 0
         self.speech_chunk_count = 0
         self.line_count = 0
-
-    @property
-    def first_response_ms(self) -> float | None:
-        return self.first_speech_chunk_ms or self.first_assistant_ms
-
-    @property
-    def first_response_preview(self) -> str | None:
-        return self.first_speech_chunk_preview or self.first_assistant_preview
 
     @property
     def response_text(self) -> str | None:
@@ -527,7 +555,7 @@ class ProviderCommandAccumulator:
             return
 
         if event_type == "assistant":
-            message = event.get("message", {})
+            message = event.get("message", {}) if isinstance(event, dict) else {}
             content = message.get("content", []) if isinstance(message, dict) else []
             if isinstance(content, list):
                 text = extract_text_from_content(content, preserve_whitespace=True)
@@ -574,7 +602,9 @@ class ProviderCommandAccumulator:
         if event_type == "result":
             status = _string_value(event.get("status")) or "success"
             if status != "success":
-                self.error_message = self.error_message or f"Gemini CLI failed with status {status}."
+                self.error_message = (
+                    self.error_message or f"Gemini CLI failed with status {status}."
+                )
                 return
             self._flush_chunks(elapsed_ms=elapsed_ms)
 
@@ -654,32 +684,32 @@ class ProviderCommandAccumulator:
 
     def _mark_status(self, message: str, *, elapsed_ms: float) -> None:
         self.status_count += 1
-        if self.first_status_ms is None:
-            self.first_status_ms = elapsed_ms
-            self.first_status_message = message
+        if self.provider_first_status_ms is None:
+            self.provider_first_status_ms = elapsed_ms
+            self.provider_first_status_message = message
 
     def _consume_assistant_text(self, text: str, *, elapsed_ms: float) -> None:
         delta_text = _extract_incremental_text(text, self._assistant_text)
         if not delta_text:
             return
 
-        if self.first_assistant_ms is None:
-            self.first_assistant_ms = elapsed_ms
-            self.first_assistant_preview = _preview_text(delta_text)
+        if self.provider_first_assistant_delta_ms is None:
+            self.provider_first_assistant_delta_ms = elapsed_ms
+            self.provider_first_assistant_preview = _preview_text(delta_text)
 
         self._assistant_text += delta_text
         for chunk in self._chunker.feed(delta_text):
             self.speech_chunk_count += 1
-            if self.first_speech_chunk_ms is None:
-                self.first_speech_chunk_ms = elapsed_ms
-                self.first_speech_chunk_preview = _preview_text(chunk)
+            if self.spoken_response_latency_ms is None:
+                self.spoken_response_latency_ms = elapsed_ms
+                self.spoken_response_preview = _preview_text(chunk)
 
     def _flush_chunks(self, *, elapsed_ms: float) -> None:
         for chunk in self._chunker.flush():
             self.speech_chunk_count += 1
-            if self.first_speech_chunk_ms is None:
-                self.first_speech_chunk_ms = elapsed_ms
-                self.first_speech_chunk_preview = _preview_text(chunk)
+            if self.spoken_response_latency_ms is None:
+                self.spoken_response_latency_ms = elapsed_ms
+                self.spoken_response_preview = _preview_text(chunk)
 
 
 CursorCommandAccumulator = ProviderCommandAccumulator
@@ -687,7 +717,7 @@ CursorCommandAccumulator = ProviderCommandAccumulator
 
 async def measure_provider_command_turn(
     *,
-    provider: TextStreamProvider,
+    provider: str,
     scenario_kind: ScenarioKind,
     scenario_name: str,
     prompt: str,
@@ -697,6 +727,15 @@ async def measure_provider_command_turn(
     repeat_index: int,
     turn_index: int,
     turn_label: str | None = None,
+    session_state: SessionState = "fresh",
+    prompt_id: str | None = None,
+    prompt_variant: str | None = None,
+    latency_archetype: str | None = None,
+    report_group: str | None = None,
+    provider_transport: str | None = None,
+    model: str | None = None,
+    thinking_level: str | None = None,
+    access_policy: str = "readonly",
 ) -> BenchmarkTurnResult:
     proc = await asyncio.create_subprocess_exec(
         *command,
@@ -723,32 +762,42 @@ async def measure_provider_command_turn(
         raise
 
     exit_code = await proc.wait()
-    completed_ms = _elapsed_ms(started_at)
+    completed_turn_ms = _elapsed_ms(started_at)
+    response_text = accumulator.response_text
+    outcome = _classify_outcome(
+        error_message=accumulator.error_message,
+        exit_code=exit_code,
+        response_text=response_text,
+    )
 
     return BenchmarkTurnResult(
         scenario_name=scenario_name,
         scenario_kind=scenario_kind,
+        provider=provider,
+        provider_transport=provider_transport,
+        model=model,
+        thinking_level=thinking_level,
+        access_policy=access_policy,
+        report_group=report_group,
+        latency_archetype=latency_archetype,
+        prompt_variant=prompt_variant,
+        prompt_id=prompt_id or turn_label or scenario_name,
+        session_state=session_state,
         repeat_index=repeat_index,
         turn_index=turn_index,
         prompt=prompt,
         turn_label=turn_label,
         command=tuple(command),
         working_directory=working_directory,
-        first_status_ms=accumulator.first_status_ms,
-        first_status_message=accumulator.first_status_message,
-        first_assistant_ms=accumulator.first_assistant_ms,
-        first_assistant_preview=accumulator.first_assistant_preview,
-        first_response_ms=(
-            accumulator.first_speech_chunk_ms or accumulator.first_assistant_ms
-        ),
-        first_response_preview=(
-            accumulator.first_speech_chunk_preview
-            or accumulator.first_assistant_preview
-        ),
-        response_text=accumulator.response_text,
-        first_speech_chunk_ms=accumulator.first_speech_chunk_ms,
-        first_speech_chunk_preview=accumulator.first_speech_chunk_preview,
-        completed_ms=completed_ms,
+        outcome=outcome,
+        provider_first_status_ms=accumulator.provider_first_status_ms,
+        provider_first_status_message=accumulator.provider_first_status_message,
+        provider_first_assistant_delta_ms=accumulator.provider_first_assistant_delta_ms,
+        provider_first_assistant_preview=accumulator.provider_first_assistant_preview,
+        spoken_response_latency_ms=accumulator.spoken_response_latency_ms,
+        spoken_response_preview=accumulator.spoken_response_preview,
+        completed_turn_ms=completed_turn_ms,
+        response_text=response_text,
         exit_code=exit_code,
         session_id=accumulator.session_id,
         error_message=accumulator.error_message,
@@ -778,6 +827,9 @@ async def run_benchmark_scenario(
         resume_session_id: str | None = None
 
         for turn_index, turn in enumerate(scenario.resolved_turns(), start=1):
+            session_state: SessionState = "warm" if resume_session_id else "fresh"
+            prompt_id = turn.prompt_id or scenario.prompt_id or turn.label or scenario.name
+
             if scenario.kind == "provider_stream":
                 config = build_scenario_config(
                     scenario,
@@ -792,6 +844,11 @@ async def run_benchmark_scenario(
                             repeat_index=repeat_index,
                             turn_index=turn_index,
                             turn_label=turn.label,
+                            session_state=session_state,
+                            prompt_id=prompt_id,
+                            prompt_variant=scenario.prompt_variant,
+                            latency_archetype=scenario.latency_archetype,
+                            report_group=scenario.report_group,
                         ),
                         timeout=scenario.timeout_seconds,
                     )
@@ -803,6 +860,8 @@ async def run_benchmark_scenario(
                         turn_index=turn_index,
                         turn_label=turn.label,
                         command=tuple(build_stream_command(config)),
+                        session_state=session_state,
+                        prompt_id=prompt_id,
                     )
             else:
                 if scenario.command is not None and turn_index > 1:
@@ -821,7 +880,7 @@ async def run_benchmark_scenario(
                 try:
                     result = await asyncio.wait_for(
                         measure_provider_command_turn(
-                            provider=scenario.provider,  # type: ignore[arg-type]
+                            provider=scenario.provider,
                             scenario_kind=scenario.kind,
                             scenario_name=scenario.name,
                             prompt=turn.prompt,
@@ -831,6 +890,15 @@ async def run_benchmark_scenario(
                             repeat_index=repeat_index,
                             turn_index=turn_index,
                             turn_label=turn.label,
+                            session_state=session_state,
+                            prompt_id=prompt_id,
+                            prompt_variant=scenario.prompt_variant,
+                            latency_archetype=scenario.latency_archetype,
+                            report_group=scenario.report_group,
+                            provider_transport=scenario.provider_transport,
+                            model=scenario.model,
+                            thinking_level=scenario.thinking_level,
+                            access_policy=scenario.access_policy,
                         ),
                         timeout=scenario.timeout_seconds,
                     )
@@ -842,6 +910,8 @@ async def run_benchmark_scenario(
                         turn_index=turn_index,
                         turn_label=turn.label,
                         command=tuple(command),
+                        session_state=session_state,
+                        prompt_id=prompt_id,
                     )
 
             turn_results.append(result)
@@ -863,27 +933,38 @@ def _timeout_result(
     turn_index: int,
     turn_label: str | None,
     command: tuple[str, ...] | None,
+    session_state: SessionState,
+    prompt_id: str,
 ) -> BenchmarkTurnResult:
     timeout_ms = float(scenario.timeout_seconds * 1000)
     return BenchmarkTurnResult(
         scenario_name=scenario.name,
         scenario_kind=scenario.kind,
+        provider=scenario.provider,
+        provider_transport=scenario.provider_transport,
+        model=scenario.model,
+        thinking_level=scenario.thinking_level,
+        access_policy=scenario.access_policy,
+        report_group=scenario.report_group,
+        latency_archetype=scenario.latency_archetype,
+        prompt_variant=scenario.prompt_variant,
+        prompt_id=prompt_id,
+        session_state=session_state,
         repeat_index=repeat_index,
         turn_index=turn_index,
         prompt=prompt,
         turn_label=turn_label,
         command=command,
         working_directory=scenario.working_directory,
-        first_status_ms=None,
-        first_status_message=None,
-        first_assistant_ms=None,
-        first_assistant_preview=None,
-        first_response_ms=None,
-        first_response_preview=None,
+        outcome="timed_out",
+        provider_first_status_ms=None,
+        provider_first_status_message=None,
+        provider_first_assistant_delta_ms=None,
+        provider_first_assistant_preview=None,
+        spoken_response_latency_ms=None,
+        spoken_response_preview=None,
+        completed_turn_ms=timeout_ms,
         response_text=None,
-        first_speech_chunk_ms=None,
-        first_speech_chunk_preview=None,
-        completed_ms=timeout_ms,
         exit_code=None,
         session_id=None,
         error_message=f"Timed out after {scenario.timeout_seconds}s.",
@@ -900,72 +981,103 @@ def summarize_turn_results(turns: Iterable[BenchmarkTurnResult]) -> BenchmarkSum
 
     return BenchmarkSummary(
         turn_count=len(turn_list),
-        mean_first_status_ms=_mean(result.first_status_ms for result in turn_list),
-        mean_first_assistant_ms=_mean(
-            result.first_assistant_ms for result in turn_list
+        ok_turn_count=sum(1 for result in turn_list if result.outcome == "ok"),
+        no_speech_count=sum(
+            1 for result in turn_list if result.outcome == "no_speech"
         ),
-        mean_first_response_ms=_mean(
-            result.first_response_ms for result in turn_list
+        timed_out_count=sum(
+            1 for result in turn_list if result.outcome == "timed_out"
         ),
-        mean_first_speech_chunk_ms=_mean(
-            result.first_speech_chunk_ms for result in turn_list
+        provider_error_count=sum(
+            1 for result in turn_list if result.outcome == "provider_error"
         ),
-        mean_completed_ms=_mean(
-            result.completed_ms
-            for result in turn_list
-            if result.completed_ms is not None
-        )
-        or 0.0,
+        interrupted_count=sum(
+            1 for result in turn_list if result.outcome == "interrupted"
+        ),
+        median_provider_first_assistant_delta_ms=_percentile(
+            [
+                result.provider_first_assistant_delta_ms
+                for result in turn_list
+                if result.provider_first_assistant_delta_ms is not None
+            ],
+            0.5,
+        ),
+        p90_provider_first_assistant_delta_ms=_percentile(
+            [
+                result.provider_first_assistant_delta_ms
+                for result in turn_list
+                if result.provider_first_assistant_delta_ms is not None
+            ],
+            0.9,
+        ),
+        median_spoken_response_latency_ms=_percentile(
+            [
+                result.spoken_response_latency_ms
+                for result in turn_list
+                if result.spoken_response_latency_ms is not None
+            ],
+            0.5,
+        ),
+        p90_spoken_response_latency_ms=_percentile(
+            [
+                result.spoken_response_latency_ms
+                for result in turn_list
+                if result.spoken_response_latency_ms is not None
+            ],
+            0.9,
+        ),
+        median_completed_turn_ms=(
+            _percentile([result.completed_turn_ms for result in turn_list], 0.5) or 0.0
+        ),
+        p90_completed_turn_ms=(
+            _percentile([result.completed_turn_ms for result in turn_list], 0.9) or 0.0
+        ),
     )
 
 
-def results_to_json(
-    results: Sequence[BenchmarkScenarioResult],
-) -> str:
-    return json.dumps(
-        [_scenario_result_to_dict(result) for result in results], indent=2
-    )
+def results_to_jsonl(results: Sequence[BenchmarkScenarioResult]) -> str:
+    lines: list[str] = []
+    for result in results:
+        for turn in result.turns:
+            lines.append(json.dumps(asdict(turn), ensure_ascii=False))
+    return "\n".join(lines)
 
 
 def format_results(results: Sequence[BenchmarkScenarioResult]) -> str:
     lines: list[str] = []
     for result in results:
         lines.append(f"Scenario: {result.scenario.name} ({result.scenario.kind})")
-        lines.append("turn  repeat  status    assistant  response  done      preview")
+        lines.append(
+            "turn  repeat  state  outcome         status    assistant  spoken    done      preview"
+        )
         for turn in result.turns:
             preview = (
-                turn.first_response_preview
-                or turn.first_speech_chunk_preview
-                or turn.first_assistant_preview
+                turn.spoken_response_preview
+                or turn.provider_first_assistant_preview
                 or "-"
             )
             lines.append(
                 f"{turn.turn_index:<5} "
                 f"{turn.repeat_index:<7} "
-                f"{_format_ms(turn.first_status_ms):<9} "
-                f"{_format_ms(turn.first_assistant_ms):<10} "
-                f"{_format_ms(turn.first_response_ms):<9} "
-                f"{_format_ms(turn.completed_ms):<9} "
+                f"{turn.session_state:<6} "
+                f"{turn.outcome:<15} "
+                f"{_format_ms(turn.provider_first_status_ms):<9} "
+                f"{_format_ms(turn.provider_first_assistant_delta_ms):<10} "
+                f"{_format_ms(turn.spoken_response_latency_ms):<9} "
+                f"{_format_ms(turn.completed_turn_ms):<9} "
                 f"{preview}"
             )
             if turn.error_message:
                 lines.append(f"error: {turn.error_message}")
         lines.append(
             "summary: "
-            f"mean response={_format_ms(result.summary.mean_first_response_ms)}, "
-            f"mean assistant={_format_ms(result.summary.mean_first_assistant_ms)}, "
-            f"mean done={_format_ms(result.summary.mean_completed_ms)}"
+            f"ok={result.summary.ok_turn_count}/{result.summary.turn_count}, "
+            f"median spoken={_format_ms(result.summary.median_spoken_response_latency_ms)}, "
+            f"p90 spoken={_format_ms(result.summary.p90_spoken_response_latency_ms)}, "
+            f"median done={_format_ms(result.summary.median_completed_turn_ms)}"
         )
         lines.append("")
     return "\n".join(lines).rstrip()
-
-
-def _scenario_result_to_dict(result: BenchmarkScenarioResult) -> dict[str, Any]:
-    return {
-        "scenario": asdict(result.scenario),
-        "turns": [asdict(turn) for turn in result.turns],
-        "summary": asdict(result.summary),
-    }
 
 
 def _preview_text(value: str, *, limit: int = 96) -> str:
@@ -984,15 +1096,48 @@ def _coalesce_response_text(
     if speech_text:
         return speech_text
 
-    assistant_text = "".join(fragment for fragment in assistant_fragments if fragment).strip()
+    assistant_text = "".join(
+        fragment for fragment in assistant_fragments if fragment
+    ).strip()
     return assistant_text or None
 
 
-def _mean(values: Iterable[float | None]) -> float | None:
-    numeric = [value for value in values if value is not None]
-    if not numeric:
+def _classify_outcome(
+    *,
+    error_message: str | None,
+    exit_code: int | None,
+    response_text: str | None,
+) -> BenchmarkOutcome:
+    if error_message:
+        if "timed out" in error_message.lower():
+            return "timed_out"
+        if "interrupt" in error_message.lower():
+            return "interrupted"
+        return "provider_error"
+    if exit_code not in {None, 0}:
+        return "provider_error"
+    if not response_text:
+        return "no_speech"
+    return "ok"
+
+
+def _percentile(values: Sequence[float], percentile: float) -> float | None:
+    if not values:
         return None
-    return round(sum(numeric) / len(numeric), 1)
+    if len(values) == 1:
+        return round(values[0], 1)
+
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * percentile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return round(ordered[lower], 1)
+
+    lower_value = ordered[lower]
+    upper_value = ordered[upper]
+    fraction = position - lower
+    return round(lower_value + (upper_value - lower_value) * fraction, 1)
 
 
 def _format_ms(value: float | None) -> str:
@@ -1003,19 +1148,6 @@ def _format_ms(value: float | None) -> str:
 
 def _elapsed_ms(started_at: float) -> float:
     return round((time.perf_counter() - started_at) * 1000, 1)
-
-
-async def _terminate_process(proc: asyncio.subprocess.Process) -> None:
-    if proc.returncode is not None:
-        return
-
-    proc.terminate()
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=2)
-        return
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
 
 
 async def _terminate_process_tree(proc: asyncio.subprocess.Process) -> None:

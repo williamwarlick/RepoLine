@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
-"""Render a Markdown benchmark report from RepoLine latency harness JSON output."""
+"""Render a local Markdown latency summary from RepoLine JSONL turn records."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import math
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from statistics import mean
 from typing import Any
-
-
-def _normalize_text(value: str | None) -> str:
-    return " ".join((value or "").strip().lower().split())
 
 
 def _percentile(values: list[float], percentile: float) -> float | None:
@@ -41,204 +37,125 @@ def _ms_to_seconds(value: float | None) -> str:
     return f"{value / 1000:.2f}s"
 
 
-def _truncate_label(value: str, *, limit: int = 24) -> str:
-    compact = " ".join(value.split())
-    if len(compact) <= limit:
-        return compact
-    return compact[: limit - 1].rstrip() + "…"
-
-
-def _scenario_label(scenario: dict[str, Any]) -> str:
-    return scenario.get("variant") or scenario.get("name") or "scenario"
-
-
-def _scenario_task(scenario: dict[str, Any]) -> str:
-    return scenario.get("task") or scenario.get("name") or "task"
-
-
-def _turn_text(turn: dict[str, Any]) -> str:
-    for key in (
-        "response_text",
-        "first_response_preview",
-        "first_speech_chunk_preview",
-        "first_assistant_preview",
-    ):
-        value = turn.get(key)
-        if isinstance(value, str) and value.strip():
-            return value
-    return ""
-
-
-def _turn_succeeded(turn: dict[str, Any]) -> bool:
-    return (
-        turn.get("exit_code") == 0
-        and not turn.get("error_message")
-        and bool(_normalize_text(_turn_text(turn)))
-    )
-
-
-def _turn_eval_passed(turn: dict[str, Any], scenario: dict[str, Any]) -> bool | None:
-    expected_exact = scenario.get("expected_exact")
-    expected_includes = scenario.get("expected_includes") or []
-
-    if not expected_exact and not expected_includes:
-        return None
-    if not _turn_succeeded(turn):
-        return False
-
-    response_text = _normalize_text(_turn_text(turn))
-    if expected_exact and response_text != _normalize_text(expected_exact):
-        return False
-
-    for fragment in expected_includes:
-        if _normalize_text(fragment) not in response_text:
-            return False
-
-    return True
-
-
-def _bar_chart(title: str, labels: list[str], seconds: list[float]) -> str | None:
-    if not labels or not seconds:
-        return None
-
-    ceiling = max(seconds)
-    rounded_ceiling = max(1, math.ceil(ceiling + 0.25))
-    label_list = ", ".join(json.dumps(_truncate_label(label)) for label in labels)
-    value_list = ", ".join(f"{value:.2f}" for value in seconds)
-
-    return "\n".join(
-        [
-            "```mermaid",
-            "xychart-beta",
-            f"    title {json.dumps(title)}",
-            f"    x-axis [{label_list}]",
-            f'    y-axis "Seconds" 0 --> {rounded_ceiling}',
-            f"    bar [{value_list}]",
-            "```",
-        ]
-    )
-
-
-def _render_report(results: list[dict[str, Any]], *, source_path: Path) -> str:
+def _load_rows(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    charts_by_task: dict[str, list[dict[str, Any]]] = {}
-
-    for entry in results:
-        scenario = entry.get("scenario", {})
-        turns = entry.get("turns", [])
-        if not isinstance(scenario, dict) or not isinstance(turns, list):
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
             continue
+        payload = json.loads(stripped)
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
 
-        succeeded = [turn for turn in turns if isinstance(turn, dict) and _turn_succeeded(turn)]
-        response_values = [
-            float(turn["first_response_ms"])
-            for turn in succeeded
-            if turn.get("first_response_ms") is not None
-        ]
-        done_values = [
-            float(turn["completed_ms"])
-            for turn in succeeded
-            if turn.get("completed_ms") is not None
-        ]
 
-        eval_results = [
-            result
-            for result in (
-                _turn_eval_passed(turn, scenario)
-                for turn in turns
-                if isinstance(turn, dict)
-            )
-            if result is not None
-        ]
+def _group_key(row: dict[str, Any]) -> tuple[str, str, str, str, str, str]:
+    provider = row.get("provider") or "-"
+    model = row.get("model") or "default"
+    prompt_variant = row.get("prompt_variant") or row.get("scenario_name") or "-"
+    latency_archetype = row.get("latency_archetype") or "-"
+    prompt_id = row.get("prompt_id") or "-"
+    session_state = row.get("session_state") or "-"
+    return (
+        str(provider),
+        str(model),
+        str(prompt_variant),
+        str(latency_archetype),
+        str(prompt_id),
+        str(session_state),
+    )
 
-        mean_first_response_ms = round(mean(response_values), 1) if response_values else None
-        row = {
-            "task": _scenario_task(scenario),
-            "label": _scenario_label(scenario),
-            "scenario_name": scenario.get("name") or "-",
-            "turn_count": len(turns),
-            "success_rate": round((len(succeeded) / len(turns)) * 100, 1) if turns else 0.0,
-            "eval_rate": (
-                round((sum(1 for result in eval_results if result) / len(eval_results)) * 100, 1)
-                if eval_results
-                else None
-            ),
-            "mean_first_response_ms": mean_first_response_ms,
-            "p50_first_response_ms": _percentile(response_values, 0.5),
-            "p90_first_response_ms": _percentile(response_values, 0.9),
-            "mean_completed_ms": round(mean(done_values), 1) if done_values else None,
-            "notes": [],
-        }
 
-        if not succeeded:
-            row["notes"].append("no successful turns")
-        elif len(succeeded) != len(turns):
-            row["notes"].append("partial failures")
-
-        if row["eval_rate"] is None and (
-            scenario.get("expected_exact") or scenario.get("expected_includes")
-        ):
-            row["notes"].append("no graded turns passed")
-
-        rows.append(row)
-        if mean_first_response_ms is not None:
-            charts_by_task.setdefault(row["task"], []).append(row)
-
-    rows.sort(key=lambda row: (row["task"], row["mean_first_response_ms"] or float("inf"), row["label"]))
+def _render_report(rows: list[dict[str, Any]], *, source_path: Path) -> str:
+    grouped: dict[tuple[str, str, str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[_group_key(row)].append(row)
 
     lines = [
-        "# RepoLine Benchmark Report",
+        "# RepoLine Latency Summary",
         "",
         f"Source: `{source_path}`",
         f"Generated: `{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}`",
         "",
-        "## Scorecard",
+        "This is a local diagnostic summary over normalized JSONL turn records.",
         "",
-        "| Task | Variant | Success | Eval pass | Mean first chunk | p50 | p90 | Mean done | n | Notes |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+        "| Provider | Model | Prompt variant | Archetype | Prompt id | Session | ok/n | Median spoken | p90 spoken | Median assistant | p90 assistant | Median done | Warnings |",
+        "| --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
     ]
 
-    for row in rows:
-        eval_rate = "-" if row["eval_rate"] is None else f"{row['eval_rate']:.1f}%"
-        notes = ", ".join(row["notes"]) if row["notes"] else "-"
+    def sort_key(item: tuple[tuple[str, str, str, str, str, str], list[dict[str, Any]]]) -> tuple[Any, ...]:
+        key, group_rows = item
+        spoken_values = [
+            float(row["spoken_response_latency_ms"])
+            for row in group_rows
+            if row.get("spoken_response_latency_ms") is not None
+        ]
+        median_spoken = _percentile(spoken_values, 0.5)
+        return (key[3], key[2], median_spoken or float("inf"), key[0], key[4], key[5])
+
+    for key, group_rows in sorted(grouped.items(), key=sort_key):
+        provider, model, prompt_variant, latency_archetype, prompt_id, session_state = key
+        ok_count = sum(1 for row in group_rows if row.get("outcome") == "ok")
+        spoken_values = [
+            float(row["spoken_response_latency_ms"])
+            for row in group_rows
+            if row.get("spoken_response_latency_ms") is not None
+        ]
+        assistant_values = [
+            float(row["provider_first_assistant_delta_ms"])
+            for row in group_rows
+            if row.get("provider_first_assistant_delta_ms") is not None
+        ]
+        done_values = [
+            float(row["completed_turn_ms"])
+            for row in group_rows
+            if row.get("completed_turn_ms") is not None
+        ]
+
+        warnings: list[str] = []
+        median_spoken = _percentile(spoken_values, 0.5)
+        p90_spoken = _percentile(spoken_values, 0.9)
+        if median_spoken is not None and median_spoken > 10000:
+            warnings.append("median spoken > 10s")
+        if p90_spoken is not None and p90_spoken > 30000:
+            warnings.append("p90 spoken > 30s")
+        if any(row.get("outcome") == "timed_out" for row in group_rows):
+            warnings.append("timeout observed")
+        if any(row.get("outcome") == "provider_error" for row in group_rows):
+            warnings.append("provider error observed")
+        if any(row.get("outcome") == "no_speech" for row in group_rows):
+            warnings.append("no speech observed")
+
         lines.append(
             "| "
             + " | ".join(
                 [
-                    row["task"],
-                    row["label"],
-                    f"{row['success_rate']:.1f}%",
-                    eval_rate,
-                    _ms_to_seconds(row["mean_first_response_ms"]),
-                    _ms_to_seconds(row["p50_first_response_ms"]),
-                    _ms_to_seconds(row["p90_first_response_ms"]),
-                    _ms_to_seconds(row["mean_completed_ms"]),
-                    str(row["turn_count"]),
-                    notes,
+                    provider,
+                    model,
+                    prompt_variant,
+                    latency_archetype,
+                    prompt_id,
+                    session_state,
+                    f"{ok_count}/{len(group_rows)}",
+                    _ms_to_seconds(median_spoken),
+                    _ms_to_seconds(p90_spoken),
+                    _ms_to_seconds(_percentile(assistant_values, 0.5)),
+                    _ms_to_seconds(_percentile(assistant_values, 0.9)),
+                    _ms_to_seconds(_percentile(done_values, 0.5)),
+                    ", ".join(warnings) if warnings else "-",
                 ]
             )
             + " |"
         )
 
-    for task, task_rows in sorted(charts_by_task.items()):
-        ranked = sorted(task_rows, key=lambda row: row["mean_first_response_ms"])
-        chart = _bar_chart(
-            f"{task}: mean time to first spoken chunk",
-            [row["label"] for row in ranked],
-            [row["mean_first_response_ms"] / 1000 for row in ranked if row["mean_first_response_ms"] is not None],
-        )
-        lines.extend(["", f"## {task}", ""])
-        if chart:
-            lines.append(chart)
-
     lines.extend(
         [
             "",
-            "## Guidance",
+            "## Notes",
             "",
-            "- Compare success rate and eval pass rate before comparing latency. A faster model that misses the task is not actually better.",
-            "- Keep cold-start and warm-follow-up benchmarks in separate suites; mixing them hides resume-session wins.",
-            "- Use exact-match or string-match tasks for objective checks, and short summary tasks for voice UX checks.",
+            "- `Median spoken` is the headline latency for the current scenario-runner harness.",
+            "- `Median assistant` is diagnostic only. It helps explain whether delay is before or after the first assistant delta.",
+            "- `Session` stays split between `fresh` and `warm`; do not average them together when making recommendations.",
         ]
     )
 
@@ -247,21 +164,18 @@ def _render_report(results: list[dict[str, Any]], *, source_path: Path) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Render a Markdown report from RepoLine latency benchmark JSON."
+        description="Render a Markdown report from RepoLine JSONL latency records."
     )
-    parser.add_argument("results_json", help="Path to a JSON file produced by scripts/latency_harness.py")
+    parser.add_argument("results_jsonl", help="Path to a JSONL file produced by scripts/latency_harness.py")
     parser.add_argument(
         "--markdown-out",
         help="Optional path to write the generated Markdown report.",
     )
     args = parser.parse_args()
 
-    source_path = Path(args.results_json).expanduser().resolve()
-    results = json.loads(source_path.read_text(encoding="utf-8"))
-    if not isinstance(results, list):
-        raise SystemExit("Benchmark results JSON must be an array.")
-
-    report = _render_report(results, source_path=source_path)
+    source_path = Path(args.results_jsonl).expanduser().resolve()
+    rows = _load_rows(source_path)
+    report = _render_report(rows, source_path=source_path)
     print(report, end="")
 
     if args.markdown_out:

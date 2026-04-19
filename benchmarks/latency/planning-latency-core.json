@@ -1,0 +1,315 @@
+{
+  "defaults": {
+    "working_directory": ".",
+    "access_policy": "readonly",
+    "chunk_chars": 100,
+    "use_repoline_prompt": true,
+    "thinking_level": "low",
+    "repeats": 3,
+    "timeout_seconds": 120,
+    "prompt_variant": "current_baseline",
+    "report_group": "planning-latency-core"
+  },
+  "scenarios": [
+    {
+      "name": "codex-trivial-hello",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "codex-trivial-math",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "math-1",
+      "prompt": "What is two plus two? Reply with one short sentence."
+    },
+    {
+      "name": "codex-lookup-harness-path",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "codex-lookup-cursor-var",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "cursor-transport-var-1",
+      "prompt": "Reply with just the env var name that controls Cursor App versus Cursor CLI transport in RepoLine."
+    },
+    {
+      "name": "codex-planning-summary",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "codex-planning-default",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "planning-question",
+      "prompt_id": "onboarding-default-1",
+      "prompt": "What is the recommended first-run coding agent for RepoLine? Reply with one short sentence."
+    },
+    {
+      "name": "codex-planning-summary-warm-sequence",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "planning-question",
+      "repeats": 3,
+      "turns": [
+        {
+          "label": "turn-1",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-2",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-3",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    },
+    {
+      "name": "codex-investigation-experimental",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "experimental-path-1",
+      "prompt": "Which provider path in RepoLine is explicitly experimental right now? Reply with one short sentence."
+    },
+    {
+      "name": "codex-investigation-stale",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "stale-path-1",
+      "prompt": "Which coding agent path is stale support in the public support matrix right now? Reply with one short sentence."
+    },
+    {
+      "name": "cursor-trivial-hello",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "cursor-trivial-math",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "math-1",
+      "prompt": "What is two plus two? Reply with one short sentence."
+    },
+    {
+      "name": "cursor-lookup-harness-path",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "cursor-lookup-cursor-var",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "cursor-transport-var-1",
+      "prompt": "Reply with just the env var name that controls Cursor App versus Cursor CLI transport in RepoLine."
+    },
+    {
+      "name": "cursor-planning-summary",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "cursor-planning-default",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "planning-question",
+      "prompt_id": "onboarding-default-1",
+      "prompt": "What is the recommended first-run coding agent for RepoLine? Reply with one short sentence."
+    },
+    {
+      "name": "cursor-planning-summary-warm-sequence",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "planning-question",
+      "repeats": 3,
+      "turns": [
+        {
+          "label": "turn-1",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-2",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-3",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    },
+    {
+      "name": "cursor-investigation-experimental",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "experimental-path-1",
+      "prompt": "Which provider path in RepoLine is explicitly experimental right now? Reply with one short sentence."
+    },
+    {
+      "name": "cursor-investigation-stale",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "stale-path-1",
+      "prompt": "Which coding agent path is stale support in the public support matrix right now? Reply with one short sentence."
+    },
+    {
+      "name": "gemini-trivial-hello",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "gemini-trivial-math",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "math-1",
+      "prompt": "What is two plus two? Reply with one short sentence."
+    },
+    {
+      "name": "gemini-lookup-harness-path",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "gemini-lookup-cursor-var",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "cursor-transport-var-1",
+      "prompt": "Reply with just the env var name that controls Cursor App versus Cursor CLI transport in RepoLine."
+    },
+    {
+      "name": "gemini-planning-summary",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "gemini-planning-default",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "planning-question",
+      "prompt_id": "onboarding-default-1",
+      "prompt": "What is the recommended first-run coding agent for RepoLine? Reply with one short sentence."
+    },
+    {
+      "name": "gemini-planning-summary-warm-sequence",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "planning-question",
+      "repeats": 3,
+      "turns": [
+        {
+          "label": "turn-1",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-2",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-3",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    },
+    {
+      "name": "gemini-investigation-experimental",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "experimental-path-1",
+      "prompt": "Which provider path in RepoLine is explicitly experimental right now? Reply with one short sentence."
+    },
+    {
+      "name": "gemini-investigation-stale",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "stale-path-1",
+      "prompt": "Which coding agent path is stale support in the public support matrix right now? Reply with one short sentence."
+    }
+  ]
+}

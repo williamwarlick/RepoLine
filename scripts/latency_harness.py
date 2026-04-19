@@ -15,7 +15,7 @@ sys.path.insert(0, str(REPO_ROOT / "agent" / "src"))
 from latency_harness import (  # noqa: E402
     format_results,
     load_benchmark_plan,
-    results_to_json,
+    results_to_jsonl,
     run_benchmark_plan,
 )
 
@@ -30,7 +30,7 @@ async def main() -> int:
     )
     parser.add_argument(
         "--json-out",
-        help="Optional path to write structured JSON results.",
+        help="Optional path to write normalized JSONL turn records.",
     )
     args = parser.parse_args()
 
@@ -41,7 +41,7 @@ async def main() -> int:
     if args.json_out:
         output_path = Path(args.json_out).expanduser()
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(results_to_json(results) + "\n", encoding="utf-8")
+        output_path.write_text(results_to_jsonl(results) + "\n", encoding="utf-8")
 
     return 0
 

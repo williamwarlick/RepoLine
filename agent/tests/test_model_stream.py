@@ -1,3 +1,5 @@
+import pytest
+
 from model_stream import (
     TextStreamConfig,
     _extract_codex_item_artifacts,
@@ -231,24 +233,17 @@ def test_build_gemini_command_can_resume_in_owner_mode() -> None:
     assert command[-1] == "gemini-3-flash-preview"
 
 
-def test_build_gemini_command_supports_direct_api_transport() -> None:
+def test_build_gemini_command_rejects_non_cli_transport() -> None:
     config = TextStreamConfig(
         provider="gemini",
-        provider_transport="api",
+        provider_transport="app",
         prompt="Follow up",
         model="gemini-2.5-flash",
         thinking_level="low",
     )
 
-    command = build_gemini_command(config)
-
-    assert command == [
-        "gemini-api",
-        "--model",
-        "gemini-2.5-flash",
-        "--thinking-budget",
-        "0",
-    ]
+    with pytest.raises(ValueError, match="Gemini only supports the Gemini CLI transport"):
+        build_gemini_command(config)
 
 
 def test_normalize_provider_defaults_to_claude() -> None:

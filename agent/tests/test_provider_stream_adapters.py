@@ -46,29 +46,6 @@ class FakeRunner:
         return self.process
 
 
-class FakeGeminiApiTransport:
-    def __init__(self, events: list[dict[str, object]]) -> None:
-        self._events = events
-        self.calls: list[dict[str, object]] = []
-
-    async def stream_generate_content(
-        self,
-        *,
-        api_key: str,
-        model: str,
-        payload: dict[str, object],
-    ) -> AsyncIterator[dict[str, object]]:
-        self.calls.append(
-            {
-                "api_key_present": bool(api_key),
-                "model": model,
-                "payload": payload,
-            }
-        )
-        for event in self._events:
-            yield event
-
-
 async def _collect_events(events: AsyncIterator[TextStreamEvent]) -> list[TextStreamEvent]:
     return [event async for event in events]
 
@@ -486,56 +463,6 @@ async def test_gemini_adapter_streams_deltas_and_tool_artifacts() -> None:
     assert artifacts[0].text == '{\n  "path": "README.md"\n}'
     assert events[-1].type == "done"
     assert runner.commands[0][0] == "gemini"
-
-
-@pytest.mark.asyncio
-async def test_gemini_adapter_supports_direct_api_transport(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    transport = FakeGeminiApiTransport(
-        [
-            {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [{"text": "Two plus two is four."}],
-                        }
-                    }
-                ]
-            }
-        ]
-    )
-    facade = ProviderStreamFacade(
-        adapters={
-            "gemini": GeminiProviderStreamAdapter(api_transport=transport),
-        }
-    )
-
-    events = await _collect_events(
-        facade.events(
-            TextStreamConfig(
-                provider="gemini",
-                provider_transport="api",
-                prompt="What is two plus two?",
-                chunk_chars=12,
-                system_prompt="Speak briefly.",
-                thinking_level="low",
-            ),
-            runner=FakeRunner(FakeProcess([])),
-        )
-    )
-
-    assert [event.message for event in events if event.type == "status"] == [
-        "Starting Gemini API stream.",
-        "Gemini API accepted the turn.",
-    ]
-    assert [event.text for event in events if event.type == "speech_chunk"] == [
-        "Two plus two is four."
-    ]
-    payload = transport.calls[0]["payload"]
-    assert isinstance(payload, dict)
-    assert payload["generationConfig"] == {"thinkingConfig": {"thinkingBudget": 0}}
-    assert events[-1].type == "done"
-    assert events[-1].session_id is not None
 
 
 @pytest.mark.asyncio

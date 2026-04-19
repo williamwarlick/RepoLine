@@ -52,7 +52,6 @@ If you are onboarding from scratch, start with `Codex CLI` unless you already kn
 - connects browser sessions or phone calls to a local coding CLI workdir
 - supports `claude`, `codex`, `cursor`, and `gemini`
 - supports an experimental, version-sensitive `Cursor App` transport with `BRIDGE_CURSOR_TRANSPORT=app` for faster app-backed Cursor turns
-- supports a direct `Gemini API` transport for fast voice conversations when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is available
 - speaks streamed output as soon as the provider gives usable text
 - supports browser chat input alongside voice
 - publishes repo artifacts into the browser transcript when the bridge emits them
@@ -80,88 +79,47 @@ See [SECURITY.md](./SECURITY.md) before exposing RepoLine outside your laptop or
 - [Costs and limits](./docs/COSTS.md)
 - [Security policy](./SECURITY.md)
 
-## Latency Snapshot
-
-Local RepoLine benchmark on `2026-04-17` using the RepoLine `provider_stream` path with `codex`, read-only access, low reasoning effort, and short one-sentence prompts.
-Treat this as a local snapshot rather than a guarantee because provider choice, repo size, auth state, and warm-session reuse all move the numbers around.
-
-```mermaid
-xychart-beta
-    title "RepoLine time to first spoken chunk"
-    x-axis ["Cold first turn", "Warm follow-up", "Repo question"]
-    y-axis "Seconds" 0 --> 7
-    bar [6.62, 5.14, 5.95]
-```
-
-| Scenario | Time to first spoken chunk | Time to completed turn |
-| --- | ---: | ---: |
-| Cold first turn (`Say hi...`, 3 fresh runs avg) | `6.62s` | `6.91s` |
-| Warm follow-up (`turn-2` and `turn-3` in the same session avg) | `5.14s` | `5.47s` |
-| One-sentence repo answer (`What does RepoLine do?`, 2 fresh runs avg) | `5.95s` | `6.18s` |
-
-On this machine, short RepoLine voice turns with Codex started speaking in about five to seven seconds, and warm follow-up turns were about `1.5s` faster than a cold first reply.
-
 ## Latency Harness
 
-Use the latency harness to compare RepoLine's bridge path against raw `cursor-agent` command shapes with the same prompt and config.
+Use the latency harness as a local diagnostic tool for coding-agent latency. The canonical artifact is one JSONL turn record per run, and the local Markdown summary is derived from that JSONL.
 
 ```bash
-bun run benchmark:latency benchmarks/latency/cursor-realtime.json
+bun run benchmark:latency benchmarks/latency/planning-latency-core.json \
+  --json-out output/latency/planning-latency-core.jsonl
+python3 ./scripts/latency_report.py output/latency/planning-latency-core.jsonl \
+  --markdown-out output/latency/planning-latency-core.md
 ```
 
-The sample plan in [`benchmarks/latency/cursor-realtime.json`](./benchmarks/latency/cursor-realtime.json) compares:
+The core planning harness measures:
 
-- the full RepoLine provider-stream path
-- the exact command RepoLine would build for Cursor
-- the same Cursor config without the RepoLine voice prompt
-- a bare direct `cursor-agent` command
+- `provider_first_status_ms`
+- `provider_first_assistant_delta_ms`
+- `spoken_response_latency_ms`
+- `completed_turn_ms`
+- `fresh` versus `warm` session state
+- `prompt_variant` and `latency_archetype` as first-class dimensions
 
-For Cursor specifically, there are now two different paths:
+The default comparison pack is the three coding-agent paths we currently want to compare directly:
+
+- `codex`
+- `cursor` CLI transport
+- `gemini` CLI transport
+
+There is also a dedicated prompt-variant pack for Codex:
+
+```bash
+bun run benchmark:latency benchmarks/latency/prompt-variants-codex.json \
+  --json-out output/latency/prompt-variants-codex.jsonl
+python3 ./scripts/latency_report.py output/latency/prompt-variants-codex.jsonl \
+  --markdown-out output/latency/prompt-variants-codex.md
+```
+
+For Cursor specifically, there are still two different runtime paths:
 
 - `BRIDGE_CURSOR_TRANSPORT=cli`: headless `cursor-agent`
 - `BRIDGE_CURSOR_TRANSPORT=app`: submit into the open Cursor app and read replies from the app's local composer state
 
-The app transport is the closest local path to the fast in-app experience, but it depends on a live Cursor desktop session for the target workspace.
-To compare the new direct app submit path against active-input automation and headless CLI, run:
-
-```bash
-bun run benchmark:latency benchmarks/latency/cursor-app-submit-modes.json
-```
-
-You can also save machine-readable results:
-
-```bash
-uv run --project agent python ./scripts/latency_harness.py \
-  benchmarks/latency/cursor-realtime.json \
-  --json-out output/latency/cursor-realtime.json
-```
-
-For the same Codex conversation snapshot shown above:
-
-```bash
-bun run benchmark:latency benchmarks/latency/codex-conversation.json
-```
-
-To compare models with a repeatable scorecard and Markdown charts:
-
-```bash
-bun run benchmark:latency benchmarks/latency/model-matrix-core.json \
-  --json-out output/latency/model-matrix-core.json
-python3 ./scripts/latency_report.py output/latency/model-matrix-core.json \
-  --markdown-out output/latency/model-matrix-core.md
-```
-
-For the current Cursor-versus-Gemini Flash comparison:
-
-```bash
-bun run benchmark:latency benchmarks/latency/gemini-vs-cursor.json
-```
-
-To isolate raw provider command latency versus the full speech path:
-
-```bash
-bun run benchmark:latency benchmarks/latency/provider-command-vs-stream.json
-```
+The app transport stays experimental because it depends on the current Cursor desktop build and a live local app session.
 
 ## License
 

@@ -192,8 +192,6 @@ def _provider_display_name(provider: str, transport: str | None = None) -> str:
         if transport == "app":
             return "Cursor App"
         return "Cursor Agent"
-    if provider == "gemini" and transport == "api":
-        return "Gemini API"
     if provider == "gemini":
         return "Gemini CLI"
     return provider
@@ -291,15 +289,7 @@ def _resolve_provider_transport(env: Mapping[str, str], provider: str) -> str | 
     if provider != "gemini":
         return None
 
-    value = _env_optional(env, "BRIDGE_GEMINI_TRANSPORT")
-    if value is None:
-        return "cli"
-    normalized = value.lower()
-    if normalized not in {"api", "cli"}:
-        raise ValueError(
-            "BRIDGE_GEMINI_TRANSPORT must be one of: api, cli"
-        )
-    return normalized
+    return "cli"
 
 
 def _resolve_provider_submit_mode(

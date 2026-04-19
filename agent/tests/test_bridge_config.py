@@ -170,23 +170,6 @@ def test_bridge_config_load_defaults_gemini_model_to_flash(
     assert "Use the `repoline-voice-session` skill silently" in config.system_prompt
 
 
-def test_bridge_config_load_supports_gemini_api_transport(tmp_path: Path) -> None:
-    workdir = tmp_path / "repo"
-    _install_skill(workdir, "gemini", "repoline-voice-session")
-
-    config = BridgeConfig.load(
-        _base_env(
-            workdir,
-            BRIDGE_CLI_PROVIDER="gemini",
-            BRIDGE_GEMINI_TRANSPORT="api",
-        ),
-        repo_root=tmp_path,
-    )
-
-    assert config.provider == "gemini"
-    assert config.provider_transport == "api"
-
-
 def test_bridge_config_load_supports_thinking_sound_overrides(tmp_path: Path) -> None:
     workdir = tmp_path / "repo"
     _install_skill(workdir, "claude", "repoline-voice-session")
@@ -223,26 +206,6 @@ def test_render_call_greeting_announces_model_and_provider(tmp_path: Path) -> No
     assert (
         render_call_greeting(config)
         == "You're talking with gemini 2.5 flash through Gemini CLI. "
-        "RepoLine is live. What do you want to work on?"
-    )
-
-
-def test_render_call_greeting_announces_gemini_api_transport(tmp_path: Path) -> None:
-    workdir = tmp_path / "repo"
-    _install_skill(workdir, "gemini", "repoline-voice-session")
-
-    config = BridgeConfig.load(
-        _base_env(
-            workdir,
-            BRIDGE_CLI_PROVIDER="gemini",
-            BRIDGE_GEMINI_TRANSPORT="api",
-        ),
-        repo_root=tmp_path,
-    )
-
-    assert (
-        render_call_greeting(config)
-        == "You're talking with gemini 2.5 flash through Gemini API. "
         "RepoLine is live. What do you want to work on?"
     )
 
