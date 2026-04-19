@@ -56,6 +56,11 @@ class BenchmarkScenario:
     resume_between_turns: bool = True
     command: tuple[str, ...] | None = None
     timeout_seconds: int = 60
+    task: str | None = None
+    variant: str | None = None
+    report_group: str | None = None
+    expected_exact: str | None = None
+    expected_includes: tuple[str, ...] = ()
 
     def resolved_turns(self) -> tuple[BenchmarkTurnSpec, ...]:
         if self.turns:
@@ -86,6 +91,7 @@ class BenchmarkTurnResult:
     first_assistant_preview: str | None
     first_response_ms: float | None
     first_response_preview: str | None
+    response_text: str | None
     first_speech_chunk_ms: float | None
     first_speech_chunk_preview: str | None
     completed_ms: float
@@ -190,6 +196,11 @@ def _parse_scenario(
         resume_between_turns=bool(merged.get("resume_between_turns", True)),
         command=command,
         timeout_seconds=_optional_int(merged, "timeout_seconds", default=60),
+        task=_optional_string(merged, "task"),
+        variant=_optional_string(merged, "variant"),
+        report_group=_optional_string(merged, "report_group"),
+        expected_exact=_optional_string(merged, "expected_exact"),
+        expected_includes=_parse_string_list(merged.get("expected_includes")),
     )
 
 
@@ -226,6 +237,16 @@ def _parse_command(value: Any) -> tuple[str, ...] | None:
     ):
         raise ValueError("`command` must be a non-empty array of strings")
     return tuple(item for item in value if item)
+
+
+def _parse_string_list(value: Any) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError("`expected_includes` must be an array of strings")
+
+    cleaned = [item.strip() for item in value if item.strip()]
+    return tuple(cleaned)
 
 
 def _require_string(payload: dict[str, Any], key: str) -> str:
@@ -310,6 +331,8 @@ async def measure_provider_stream_turn(
     first_assistant_preview: str | None = None
     first_speech_chunk_ms: float | None = None
     first_speech_chunk_preview: str | None = None
+    speech_chunks: list[str] = []
+    assistant_fragments: list[str] = []
     session_id = config.resume_session_id
     error_message: str | None = None
     exit_code: int | None = None
@@ -329,6 +352,7 @@ async def measure_provider_stream_turn(
             continue
 
         if event.type == "assistant_delta" and event.text:
+            assistant_fragments.append(event.text)
             if first_assistant_ms is None:
                 first_assistant_ms = elapsed_ms
                 first_assistant_preview = _preview_text(event.text)
@@ -336,6 +360,7 @@ async def measure_provider_stream_turn(
 
         if event.type == "speech_chunk" and event.text:
             speech_chunk_count += 1
+            speech_chunks.append(event.text)
             if first_speech_chunk_ms is None:
                 first_speech_chunk_ms = elapsed_ms
                 first_speech_chunk_preview = _preview_text(event.text)
@@ -350,6 +375,10 @@ async def measure_provider_stream_turn(
             exit_code = event.exit_code
 
     completed_ms = _elapsed_ms(started_at)
+    response_text = _coalesce_response_text(
+        speech_chunks=speech_chunks,
+        assistant_fragments=assistant_fragments,
+    )
     return BenchmarkTurnResult(
         scenario_name=scenario_name,
         scenario_kind="provider_stream",
@@ -365,6 +394,7 @@ async def measure_provider_stream_turn(
         first_assistant_preview=first_assistant_preview,
         first_response_ms=first_speech_chunk_ms or first_assistant_ms,
         first_response_preview=first_speech_chunk_preview or first_assistant_preview,
+        response_text=response_text,
         first_speech_chunk_ms=first_speech_chunk_ms,
         first_speech_chunk_preview=first_speech_chunk_preview,
         completed_ms=completed_ms,
@@ -401,6 +431,11 @@ class ProviderCommandAccumulator:
     @property
     def first_response_preview(self) -> str | None:
         return self.first_speech_chunk_preview or self.first_assistant_preview
+
+    @property
+    def response_text(self) -> str | None:
+        text = self._assistant_text.strip()
+        return text or None
 
     def observe_line(self, line: str, *, elapsed_ms: float) -> None:
         self.line_count += 1
@@ -710,6 +745,7 @@ async def measure_provider_command_turn(
             accumulator.first_speech_chunk_preview
             or accumulator.first_assistant_preview
         ),
+        response_text=accumulator.response_text,
         first_speech_chunk_ms=accumulator.first_speech_chunk_ms,
         first_speech_chunk_preview=accumulator.first_speech_chunk_preview,
         completed_ms=completed_ms,
@@ -844,6 +880,7 @@ def _timeout_result(
         first_assistant_preview=None,
         first_response_ms=None,
         first_response_preview=None,
+        response_text=None,
         first_speech_chunk_ms=None,
         first_speech_chunk_preview=None,
         completed_ms=timeout_ms,
@@ -936,6 +973,19 @@ def _preview_text(value: str, *, limit: int = 96) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 3].rstrip() + "..."
+
+
+def _coalesce_response_text(
+    *,
+    speech_chunks: Sequence[str],
+    assistant_fragments: Sequence[str],
+) -> str | None:
+    speech_text = " ".join(chunk.strip() for chunk in speech_chunks if chunk.strip()).strip()
+    if speech_text:
+        return speech_text
+
+    assistant_text = "".join(fragment for fragment in assistant_fragments if fragment).strip()
+    return assistant_text or None
 
 
 def _mean(values: Iterable[float | None]) -> float | None:

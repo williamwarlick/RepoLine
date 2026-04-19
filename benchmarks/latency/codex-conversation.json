@@ -1,0 +1,44 @@
+{
+  "defaults": {
+    "provider": "codex",
+    "working_directory": ".",
+    "access_policy": "readonly",
+    "chunk_chars": 100,
+    "use_repoline_prompt": true,
+    "thinking_level": "low",
+    "timeout_seconds": 90
+  },
+  "scenarios": [
+    {
+      "name": "codex-hi-fresh",
+      "kind": "provider_stream",
+      "prompt": "Say hi in one short sentence.",
+      "repeats": 3
+    },
+    {
+      "name": "codex-hi-resume",
+      "kind": "provider_stream",
+      "turns": [
+        {
+          "label": "turn-1",
+          "prompt": "Say hi in one short sentence."
+        },
+        {
+          "label": "turn-2",
+          "prompt": "Say hi again in one short sentence."
+        },
+        {
+          "label": "turn-3",
+          "prompt": "Say hi one more time in one short sentence."
+        }
+      ],
+      "repeats": 1
+    },
+    {
+      "name": "codex-one-line-repo",
+      "kind": "provider_stream",
+      "prompt": "What does RepoLine do in one short sentence?",
+      "repeats": 2
+    }
+  ]
+}

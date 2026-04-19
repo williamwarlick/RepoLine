@@ -1610,7 +1610,7 @@ async function selectBridgeProvider(
   }
 
   const provider = normalizeBridgeProvider(
-    agentEnv.BRIDGE_CLI_PROVIDER ?? existingState?.bridge_provider ?? 'claude'
+    agentEnv.BRIDGE_CLI_PROVIDER ?? existingState?.bridge_provider ?? 'codex'
   );
   const installedProviders = (['claude', 'codex', 'cursor', 'gemini'] as const).filter((candidate) =>
     Boolean(Bun.which(providerExecutable(candidate)))
@@ -1625,19 +1625,19 @@ async function selectBridgeProvider(
   const options = [
     {
       label: 'Claude Code',
-      hint: 'Uses claude auth and installs the skill into .claude/skills',
+      hint: 'Supported, but not the primary onboarding recommendation right now',
     },
     {
       label: 'Codex CLI',
-      hint: 'Uses codex login and installs the skill into .agents/skills',
+      hint: 'Recommended starting point; uses codex login and .agents/skills',
     },
     {
       label: 'Cursor Agent',
-      hint: 'Uses cursor-agent auth and installs the rule into .cursor/rules',
+      hint: 'Good for existing Cursor users; keep the app transport as a later experiment',
     },
     {
       label: 'Gemini CLI',
-      hint: 'Uses gemini auth and links the skill into .agents/skills',
+      hint: 'Supported CLI path; Gemini API is faster but requires API keys',
     },
   ];
   const selection = await ui.selectOption(

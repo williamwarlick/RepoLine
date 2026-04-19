@@ -1,0 +1,194 @@
+{
+  "defaults": {
+    "working_directory": ".",
+    "access_policy": "readonly",
+    "chunk_chars": 100,
+    "use_repoline_prompt": true,
+    "thinking_level": "low",
+    "repeats": 2,
+    "timeout_seconds": 90,
+    "report_group": "model-matrix-core"
+  },
+  "scenarios": [
+    {
+      "name": "claude-sonnet-summary",
+      "kind": "provider_stream",
+      "provider": "claude",
+      "model": "sonnet",
+      "task": "repo-summary",
+      "variant": "Claude Sonnet",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "claude-sonnet-harness-path",
+      "kind": "provider_stream",
+      "provider": "claude",
+      "model": "sonnet",
+      "task": "harness-path",
+      "variant": "Claude Sonnet",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script.",
+      "expected_exact": "scripts/latency_harness.py"
+    },
+    {
+      "name": "claude-sonnet-default-gemini-model",
+      "kind": "provider_stream",
+      "provider": "claude",
+      "model": "sonnet",
+      "task": "default-gemini-model",
+      "variant": "Claude Sonnet",
+      "prompt": "Reply with just the default Gemini model configured in this repo.",
+      "expected_exact": "gemini-2.5-flash"
+    },
+    {
+      "name": "codex-default-summary",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "task": "repo-summary",
+      "variant": "Codex Default",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "codex-default-harness-path",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "task": "harness-path",
+      "variant": "Codex Default",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script.",
+      "expected_exact": "scripts/latency_harness.py"
+    },
+    {
+      "name": "codex-default-default-gemini-model",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "task": "default-gemini-model",
+      "variant": "Codex Default",
+      "prompt": "Reply with just the default Gemini model configured in this repo.",
+      "expected_exact": "gemini-2.5-flash"
+    },
+    {
+      "name": "codex-gpt5codex-summary",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "model": "gpt-5-codex",
+      "task": "repo-summary",
+      "variant": "Codex GPT-5 Codex",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "codex-gpt5codex-harness-path",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "model": "gpt-5-codex",
+      "task": "harness-path",
+      "variant": "Codex GPT-5 Codex",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script.",
+      "expected_exact": "scripts/latency_harness.py"
+    },
+    {
+      "name": "codex-gpt5codex-default-gemini-model",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "model": "gpt-5-codex",
+      "task": "default-gemini-model",
+      "variant": "Codex GPT-5 Codex",
+      "prompt": "Reply with just the default Gemini model configured in this repo.",
+      "expected_exact": "gemini-2.5-flash"
+    },
+    {
+      "name": "cursor-cli-summary",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "task": "repo-summary",
+      "variant": "Cursor CLI Composer 2 Fast",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "cursor-cli-harness-path",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "task": "harness-path",
+      "variant": "Cursor CLI Composer 2 Fast",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script.",
+      "expected_exact": "scripts/latency_harness.py"
+    },
+    {
+      "name": "cursor-cli-default-gemini-model",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "task": "default-gemini-model",
+      "variant": "Cursor CLI Composer 2 Fast",
+      "prompt": "Reply with just the default Gemini model configured in this repo.",
+      "expected_exact": "gemini-2.5-flash"
+    },
+    {
+      "name": "gemini-cli-25-summary",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "task": "repo-summary",
+      "variant": "Gemini CLI 2.5 Flash",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "gemini-cli-25-harness-path",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "task": "harness-path",
+      "variant": "Gemini CLI 2.5 Flash",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script.",
+      "expected_exact": "scripts/latency_harness.py"
+    },
+    {
+      "name": "gemini-cli-25-default-gemini-model",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "task": "default-gemini-model",
+      "variant": "Gemini CLI 2.5 Flash",
+      "prompt": "Reply with just the default Gemini model configured in this repo.",
+      "expected_exact": "gemini-2.5-flash"
+    },
+    {
+      "name": "gemini-cli-3-preview-summary",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-3-flash-preview",
+      "task": "repo-summary",
+      "variant": "Gemini CLI 3 Flash Preview",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "gemini-cli-3-preview-harness-path",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-3-flash-preview",
+      "task": "harness-path",
+      "variant": "Gemini CLI 3 Flash Preview",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script.",
+      "expected_exact": "scripts/latency_harness.py"
+    },
+    {
+      "name": "gemini-cli-3-preview-default-gemini-model",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-3-flash-preview",
+      "task": "default-gemini-model",
+      "variant": "Gemini CLI 3 Flash Preview",
+      "prompt": "Reply with just the default Gemini model configured in this repo.",
+      "expected_exact": "gemini-2.5-flash"
+    }
+  ]
+}
