@@ -119,11 +119,16 @@ def find_workspace_storage_dir(
 
 
 def read_item_table_json(db_path: Path, key: str) -> dict[str, Any] | None:
-    with sqlite3.connect(db_path) as connection:
-        row = connection.execute(
-            "select value from ItemTable where key = ?",
-            (key,),
-        ).fetchone()
+    try:
+        with sqlite3.connect(db_path) as connection:
+            row = connection.execute(
+                "select value from ItemTable where key = ?",
+                (key,),
+            ).fetchone()
+    except sqlite3.Error as exc:
+        raise CursorAppTapError(
+            f"Could not read Cursor ItemTable key {key!r} from {db_path}."
+        ) from exc
 
     if row is None:
         return None
@@ -133,12 +138,17 @@ def read_item_table_json(db_path: Path, key: str) -> dict[str, Any] | None:
 
 def write_item_table_json(db_path: Path, key: str, payload: dict[str, Any]) -> None:
     encoded_payload = json.dumps(payload)
-    with sqlite3.connect(db_path) as connection:
-        connection.execute(
-            "update ItemTable set value = ? where key = ?",
-            (encoded_payload, key),
-        )
-        connection.commit()
+    try:
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                "update ItemTable set value = ? where key = ?",
+                (encoded_payload, key),
+            )
+            connection.commit()
+    except sqlite3.Error as exc:
+        raise CursorAppTapError(
+            f"Could not write Cursor ItemTable key {key!r} to {db_path}."
+        ) from exc
 
 
 def find_active_composer_id(
@@ -309,11 +319,16 @@ def search_workspace_conversations(
 
 
 def read_cursor_disk_kv_json(db_path: Path, key: str) -> dict[str, Any] | None:
-    with sqlite3.connect(db_path) as connection:
-        row = connection.execute(
-            "select value from cursorDiskKV where key = ?",
-            (key,),
-        ).fetchone()
+    try:
+        with sqlite3.connect(db_path) as connection:
+            row = connection.execute(
+                "select value from cursorDiskKV where key = ?",
+                (key,),
+            ).fetchone()
+    except sqlite3.Error as exc:
+        raise CursorAppTapError(
+            f"Could not read Cursor cursorDiskKV key {key!r} from {db_path}."
+        ) from exc
 
     if row is None:
         return None
@@ -323,12 +338,17 @@ def read_cursor_disk_kv_json(db_path: Path, key: str) -> dict[str, Any] | None:
 
 def write_cursor_disk_kv_json(db_path: Path, key: str, payload: dict[str, Any]) -> None:
     encoded_payload = json.dumps(payload)
-    with sqlite3.connect(db_path) as connection:
-        connection.execute(
-            "update cursorDiskKV set value = ? where key = ?",
-            (encoded_payload, key),
-        )
-        connection.commit()
+    try:
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                "update cursorDiskKV set value = ? where key = ?",
+                (encoded_payload, key),
+            )
+            connection.commit()
+    except sqlite3.Error as exc:
+        raise CursorAppTapError(
+            f"Could not write Cursor cursorDiskKV key {key!r} to {db_path}."
+        ) from exc
 
 
 def load_composer_data(
