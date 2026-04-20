@@ -40,6 +40,7 @@ FALLBACK_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 3.0
 SUBMIT_VERIFICATION_POLL_INTERVAL_SECONDS = 0.05
 BRIDGE_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 1.35
 BRIDGE_COMPOSER_SCAN_STEPS = 6
+FRESH_COMPOSER_SWITCH_TIMEOUT_SECONDS = 8.0
 CURSOR_CONNECTION_INVALID_SNIPPET = "Connection is invalid"
 BRIDGE_SUBMIT_METHODS: tuple[str, ...] = ()
 
@@ -548,27 +549,48 @@ async def _ensure_selected_composer_id(
     except CursorAppBridgeError:
         return _safe_find_active_composer_id(workspace_root)
 
-    deadline = asyncio.get_running_loop().time() + 3.0
+    deadline = (
+        asyncio.get_running_loop().time() + FRESH_COMPOSER_SWITCH_TIMEOUT_SECONDS
+    )
     while asyncio.get_running_loop().time() < deadline:
         current_bridge_status = await ensure_cursor_app_bridge(workspace_root)
-        selected_composer_id = _bridge_selected_composer_id(current_bridge_status)
-        if selected_composer_id and (
-            not prefer_new_composer or selected_composer_id not in previous_composer_ids
-        ):
-            return selected_composer_id
-        active_composer_id = _safe_find_active_composer_id(workspace_root)
-        if active_composer_id and (
-            not prefer_new_composer or active_composer_id not in previous_composer_ids
-        ):
-            return active_composer_id
+        current_candidate_ids = _candidate_submit_composer_ids(
+            bridge_status=current_bridge_status,
+            active_composer_id=_safe_find_active_composer_id(workspace_root),
+            fallback_composer_id=None,
+        )
+        if not prefer_new_composer:
+            selected_composer_id = _preferred_candidate_submit_composer_id(
+                current_candidate_ids
+            )
+            if selected_composer_id:
+                return selected_composer_id
+        else:
+            new_candidate_ids = [
+                composer_id
+                for composer_id in current_candidate_ids
+                if composer_id not in previous_composer_ids
+            ]
+            selected_composer_id = _preferred_candidate_submit_composer_id(
+                new_candidate_ids
+            )
+            if selected_composer_id:
+                return selected_composer_id
         await asyncio.sleep(SUBMIT_VERIFICATION_POLL_INTERVAL_SECONDS)
 
-    fallback_composer_id = _safe_find_active_composer_id(workspace_root)
-    if fallback_composer_id and (
-        not prefer_new_composer or fallback_composer_id not in previous_composer_ids
-    ):
-        return fallback_composer_id
-    return None if prefer_new_composer else fallback_composer_id
+    fallback_candidate_ids = _candidate_submit_composer_ids(
+        bridge_status=await ensure_cursor_app_bridge(workspace_root),
+        active_composer_id=_safe_find_active_composer_id(workspace_root),
+        fallback_composer_id=None,
+    )
+    if prefer_new_composer:
+        new_candidate_ids = [
+            composer_id
+            for composer_id in fallback_candidate_ids
+            if composer_id not in previous_composer_ids
+        ]
+        return _preferred_candidate_submit_composer_id(new_candidate_ids)
+    return _preferred_candidate_submit_composer_id(fallback_candidate_ids)
 
 
 async def _run_active_input_osascript(

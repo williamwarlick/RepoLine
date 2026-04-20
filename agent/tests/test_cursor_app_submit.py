@@ -510,6 +510,62 @@ async def test_ensure_selected_composer_id_can_force_new_composer(
 
 
 @pytest.mark.asyncio
+async def test_ensure_selected_composer_id_can_use_appended_selected_composer_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge_statuses = [
+        {"selectedComposerId": "composer-old", "selectedComposerIds": ["composer-old"]},
+        {
+            "selectedComposerId": "composer-old",
+            "selectedComposerIds": ["composer-old", "composer-new"],
+        },
+    ]
+    exec_calls: list[dict[str, object]] = []
+
+    async def fake_ensure_cursor_app_bridge(workspace_root: str) -> dict[str, object]:
+        return bridge_statuses.pop(0)
+
+    async def fake_request_cursor_app_bridge(
+        *,
+        workspace_root: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        exec_calls.append(payload)
+        return {"ok": True}
+
+    async def fake_sleep(_: float) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "cursor_app_submit.ensure_cursor_app_bridge",
+        fake_ensure_cursor_app_bridge,
+    )
+    monkeypatch.setattr(
+        "cursor_app_submit.request_cursor_app_bridge",
+        fake_request_cursor_app_bridge,
+    )
+    monkeypatch.setattr(
+        "cursor_app_submit._safe_find_active_composer_id",
+        lambda workspace_root: "composer-old",
+    )
+    monkeypatch.setattr("cursor_app_submit.asyncio.sleep", fake_sleep)
+
+    composer_id = await _ensure_selected_composer_id(
+        "/tmp/repo",
+        prefer_new_composer=True,
+    )
+
+    assert composer_id == "composer-new"
+    assert exec_calls == [
+        {
+            "method": "exec",
+            "command": "composer.createNew",
+            "args": [],
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_submit_prompt_to_cursor_app_fails_when_fresh_composer_never_appears(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
