@@ -5,6 +5,8 @@ import os
 from collections.abc import AsyncIterator
 from typing import Protocol
 
+JSONL_STREAM_BUFFER_LIMIT = 8 * 1024 * 1024
+
 
 class JsonlProcess(Protocol):
     @property
@@ -61,7 +63,7 @@ class SubprocessProcessRunner:
             env=os.environ.copy(),
         )
         if proc.stdout is not None:
-            proc.stdout._limit = max(proc.stdout._limit, 1024 * 1024)  # type: ignore[attr-defined]
+            proc.stdout._limit = max(proc.stdout._limit, JSONL_STREAM_BUFFER_LIMIT)  # type: ignore[attr-defined]
         return SubprocessJsonlProcess(proc)
 
 

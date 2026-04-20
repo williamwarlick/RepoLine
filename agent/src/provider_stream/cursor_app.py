@@ -158,7 +158,12 @@ class CursorAppTransport:
         composer_id = submit_result.composer_id
         tail = self._tail_factory(composer_id)
         with suppress(Exception):
-            tail.seed_known_bubbles(self._bubble_loader(composer_id))
+            tail.seed_known_bubbles(
+                _seed_bubbles_before_submitted_response(
+                    self._bubble_loader(composer_id),
+                    prompt=prompt,
+                )
+            )
 
         yield TextStreamEvent(
             type="status",
@@ -290,3 +295,26 @@ def _tool_artifact_from_bubble(raw: dict[str, Any]) -> UiArtifact | None:
         text=text,
         artifact_id=str(raw.get("bubbleId") or ""),
     )
+
+
+def _seed_bubbles_before_submitted_response(
+    bubbles: list[Any],
+    *,
+    prompt: str,
+) -> list[Any]:
+    normalized_prompt = prompt.strip()
+    if not normalized_prompt:
+        return bubbles
+
+    last_matching_user_index: int | None = None
+    for index, bubble in enumerate(bubbles):
+        if getattr(bubble, "role", None) != "user":
+            continue
+        bubble_text = str(getattr(bubble, "text", "") or "").strip()
+        if bubble_text == normalized_prompt:
+            last_matching_user_index = index
+
+    if last_matching_user_index is None:
+        return bubbles
+
+    return bubbles[: last_matching_user_index + 1]

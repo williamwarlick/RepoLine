@@ -17,6 +17,7 @@ from latency_harness import (  # noqa: E402
     load_benchmark_plan,
     results_to_jsonl,
     run_benchmark_plan,
+    turn_result_to_jsonl_line,
 )
 
 
@@ -35,13 +36,29 @@ async def main() -> int:
     args = parser.parse_args()
 
     plan = load_benchmark_plan(args.scenario_file, working_directory=REPO_ROOT)
-    results = await run_benchmark_plan(plan)
+    json_output_path: Path | None = None
+    if args.json_out:
+        json_output_path = Path(args.json_out).expanduser()
+        json_output_path.parent.mkdir(parents=True, exist_ok=True)
+        json_output_path.write_text("", encoding="utf-8")
+
+    def _append_turn_result_jsonl_line(result) -> None:
+        if json_output_path is None:
+            return
+        with json_output_path.open("a", encoding="utf-8") as handle:
+            handle.write(turn_result_to_jsonl_line(result))
+            handle.write("\n")
+
+    results = await run_benchmark_plan(
+        plan, on_turn_result=_append_turn_result_jsonl_line
+    )
     print(format_results(results))
 
-    if args.json_out:
-        output_path = Path(args.json_out).expanduser()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(results_to_jsonl(results) + "\n", encoding="utf-8")
+    if json_output_path is not None:
+        expected_jsonl = results_to_jsonl(results)
+        actual_jsonl = json_output_path.read_text(encoding="utf-8").rstrip("\n")
+        if actual_jsonl != expected_jsonl:
+            json_output_path.write_text(expected_jsonl + "\n", encoding="utf-8")
 
     return 0
 

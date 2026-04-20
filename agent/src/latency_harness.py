@@ -25,6 +25,7 @@ from provider_stream.common import (
     _string_value,
     extract_text_from_content,
 )
+from provider_stream.runner import JSONL_STREAM_BUFFER_LIMIT
 from repoline_skill import resolve_repoline_skill_prompt
 
 ScenarioKind = Literal["provider_stream", "provider_command", "cursor_command"]
@@ -119,6 +120,9 @@ class BenchmarkTurnResult:
     status_count: int
     speech_chunk_count: int
     line_count: int
+
+
+TurnResultObserver = Callable[[BenchmarkTurnResult], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -361,40 +365,47 @@ async def measure_provider_stream_turn(
     status_count = 0
     speech_chunk_count = 0
 
-    async for event in stream_events(config):
-        elapsed_ms = _elapsed_ms(started_at)
-        if event.session_id:
-            session_id = event.session_id
+    try:
+        async for event in stream_events(config):
+            elapsed_ms = _elapsed_ms(started_at)
+            if event.session_id:
+                session_id = event.session_id
 
-        if event.type == "status":
-            status_count += 1
-            if first_status_ms is None:
-                first_status_ms = elapsed_ms
-                first_status_message = event.message
-            continue
+            if event.type == "status":
+                status_count += 1
+                if first_status_ms is None:
+                    first_status_ms = elapsed_ms
+                    first_status_message = event.message
+                continue
 
-        if event.type == "assistant_delta" and event.text:
-            assistant_fragments.append(event.text)
-            if first_assistant_delta_ms is None:
-                first_assistant_delta_ms = elapsed_ms
-                first_assistant_preview = _preview_text(event.text)
-            continue
+            if event.type == "assistant_delta" and event.text:
+                assistant_fragments.append(event.text)
+                if first_assistant_delta_ms is None:
+                    first_assistant_delta_ms = elapsed_ms
+                    first_assistant_preview = _preview_text(event.text)
+                continue
 
-        if event.type == "speech_chunk" and event.text:
-            speech_chunk_count += 1
-            speech_chunks.append(event.text)
-            if spoken_response_latency_ms is None:
-                spoken_response_latency_ms = elapsed_ms
-                spoken_response_preview = _preview_text(event.text)
-            continue
+            if event.type == "speech_chunk" and event.text:
+                speech_chunk_count += 1
+                speech_chunks.append(event.text)
+                if spoken_response_latency_ms is None:
+                    spoken_response_latency_ms = elapsed_ms
+                    spoken_response_preview = _preview_text(event.text)
+                continue
 
-        if event.type == "error":
-            error_message = event.message
-            exit_code = event.exit_code
-            continue
+            if event.type == "error":
+                error_message = event.message
+                exit_code = event.exit_code
+                continue
 
-        if event.type == "done":
-            exit_code = event.exit_code
+            if event.type == "done":
+                exit_code = event.exit_code
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        error_message = str(exc) or exc.__class__.__name__
+        if exit_code is None:
+            exit_code = 1
 
     completed_turn_ms = _elapsed_ms(started_at)
     response_text = _coalesce_response_text(
@@ -608,9 +619,7 @@ class ProviderCommandAccumulator:
                 return
             self._flush_chunks(elapsed_ms=elapsed_ms)
 
-    def _observe_codex_event(
-        self, event: dict[str, Any], *, elapsed_ms: float
-    ) -> None:
+    def _observe_codex_event(self, event: dict[str, Any], *, elapsed_ms: float) -> None:
         event_type = _string_value(event.get("type"))
         if event_type == "thread.started":
             self.session_id = _string_value(event.get("thread_id")) or self.session_id
@@ -661,7 +670,9 @@ class ProviderCommandAccumulator:
                 return
             inner_type = _string_value(inner.get("type"))
             if inner_type == "message_start":
-                self._mark_status("Claude Code accepted the turn.", elapsed_ms=elapsed_ms)
+                self._mark_status(
+                    "Claude Code accepted the turn.", elapsed_ms=elapsed_ms
+                )
                 return
             if inner_type == "message_stop":
                 self._flush_chunks(elapsed_ms=elapsed_ms)
@@ -747,7 +758,7 @@ async def measure_provider_command_turn(
         start_new_session=True,
     )
     if proc.stdout is not None:
-        proc.stdout._limit = max(proc.stdout._limit, 1024 * 1024)  # type: ignore[attr-defined]
+        proc.stdout._limit = max(proc.stdout._limit, JSONL_STREAM_BUFFER_LIMIT)  # type: ignore[attr-defined]
 
     accumulator = ProviderCommandAccumulator(provider=provider, chunk_chars=chunk_chars)
     started_at = time.perf_counter()
@@ -812,14 +823,21 @@ measure_cursor_command_turn = measure_provider_command_turn
 
 async def run_benchmark_plan(
     plan: BenchmarkPlan,
+    *,
+    on_turn_result: TurnResultObserver | None = None,
 ) -> tuple[BenchmarkScenarioResult, ...]:
     return tuple(
-        [await run_benchmark_scenario(scenario) for scenario in plan.scenarios]
+        [
+            await run_benchmark_scenario(scenario, on_turn_result=on_turn_result)
+            for scenario in plan.scenarios
+        ]
     )
 
 
 async def run_benchmark_scenario(
     scenario: BenchmarkScenario,
+    *,
+    on_turn_result: TurnResultObserver | None = None,
 ) -> BenchmarkScenarioResult:
     turn_results: list[BenchmarkTurnResult] = []
 
@@ -828,7 +846,9 @@ async def run_benchmark_scenario(
 
         for turn_index, turn in enumerate(scenario.resolved_turns(), start=1):
             session_state: SessionState = "warm" if resume_session_id else "fresh"
-            prompt_id = turn.prompt_id or scenario.prompt_id or turn.label or scenario.name
+            prompt_id = (
+                turn.prompt_id or scenario.prompt_id or turn.label or scenario.name
+            )
 
             if scenario.kind == "provider_stream":
                 config = build_scenario_config(
@@ -915,6 +935,8 @@ async def run_benchmark_scenario(
                     )
 
             turn_results.append(result)
+            if on_turn_result is not None:
+                on_turn_result(result)
             if scenario.resume_between_turns and result.session_id:
                 resume_session_id = result.session_id
 
@@ -982,12 +1004,8 @@ def summarize_turn_results(turns: Iterable[BenchmarkTurnResult]) -> BenchmarkSum
     return BenchmarkSummary(
         turn_count=len(turn_list),
         ok_turn_count=sum(1 for result in turn_list if result.outcome == "ok"),
-        no_speech_count=sum(
-            1 for result in turn_list if result.outcome == "no_speech"
-        ),
-        timed_out_count=sum(
-            1 for result in turn_list if result.outcome == "timed_out"
-        ),
+        no_speech_count=sum(1 for result in turn_list if result.outcome == "no_speech"),
+        timed_out_count=sum(1 for result in turn_list if result.outcome == "timed_out"),
         provider_error_count=sum(
             1 for result in turn_list if result.outcome == "provider_error"
         ),
@@ -1039,8 +1057,12 @@ def results_to_jsonl(results: Sequence[BenchmarkScenarioResult]) -> str:
     lines: list[str] = []
     for result in results:
         for turn in result.turns:
-            lines.append(json.dumps(asdict(turn), ensure_ascii=False))
+            lines.append(turn_result_to_jsonl_line(turn))
     return "\n".join(lines)
+
+
+def turn_result_to_jsonl_line(result: BenchmarkTurnResult) -> str:
+    return json.dumps(asdict(result), ensure_ascii=False)
 
 
 def format_results(results: Sequence[BenchmarkScenarioResult]) -> str:
@@ -1092,7 +1114,9 @@ def _coalesce_response_text(
     speech_chunks: Sequence[str],
     assistant_fragments: Sequence[str],
 ) -> str | None:
-    speech_text = " ".join(chunk.strip() for chunk in speech_chunks if chunk.strip()).strip()
+    speech_text = " ".join(
+        chunk.strip() for chunk in speech_chunks if chunk.strip()
+    ).strip()
     if speech_text:
         return speech_text
 

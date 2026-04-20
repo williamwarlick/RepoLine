@@ -4,7 +4,10 @@ import pytest
 
 from cursor_app_submit import CursorAppSubmitResult
 from provider_stream.common import TextStreamConfig
-from provider_stream.cursor_app import CursorAppTransport
+from provider_stream.cursor_app import (
+    CursorAppTransport,
+    _seed_bubbles_before_submitted_response,
+)
 
 
 class FakeSubmitter:
@@ -68,6 +71,17 @@ def _assistant_bubble(text: str):
         def __init__(self) -> None:
             self.bubble_id = f"bubble-{text}"
             self.text = text
+            self.role = "assistant"
+
+    return Bubble()
+
+
+def _user_bubble(text: str):
+    class Bubble:
+        def __init__(self) -> None:
+            self.bubble_id = f"user-{abs(hash(text))}"
+            self.text = text
+            self.role = "user"
 
     return Bubble()
 
@@ -258,4 +272,24 @@ async def test_cursor_app_transport_does_not_replay_existing_history() -> None:
 
     assert [event.text for event in events if event.type == "speech_chunk"] == [
         "new reply"
+    ]
+
+
+def test_seed_bubbles_before_submitted_response_leaves_post_prompt_assistant_unseeded() -> None:
+    bubbles = [
+        _user_bubble("older prompt"),
+        _assistant_bubble("older reply"),
+        _user_bubble("submitted prompt"),
+        _assistant_bubble("new reply"),
+    ]
+
+    seeded = _seed_bubbles_before_submitted_response(
+        bubbles,
+        prompt="submitted prompt",
+    )
+
+    assert [bubble.text for bubble in seeded] == [
+        "older prompt",
+        "older reply",
+        "submitted prompt",
     ]

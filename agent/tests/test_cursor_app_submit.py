@@ -11,10 +11,12 @@ from cursor_app_submit import (
     CursorUserBubbleMarker,
     submit_prompt_to_cursor_app,
     _bridge_selected_composer_id,
+    _bridge_selected_composer_ids,
     _composer_has_history,
     _ensure_selected_composer_id,
     _is_invalid_cursor_connection_error,
     _resolve_submit_composer_id,
+    _try_bridge_active_submit,
     _wait_for_submitted_prompt,
     build_active_input_submit_command,
     build_osascript_submit_command,
@@ -167,6 +169,16 @@ def test_bridge_selected_composer_id_returns_trimmed_id() -> None:
     )
     assert _bridge_selected_composer_id({"selectedComposerId": ""}) is None
     assert _bridge_selected_composer_id(None) is None
+
+
+def test_bridge_selected_composer_ids_include_secondary_selected_threads() -> None:
+    assert _bridge_selected_composer_ids(
+        {
+            "selectedComposerId": " empty-1 ",
+            "selectedComposerIds": ["empty-1", " real-1 ", "", "empty-1"],
+        }
+    ) == ["empty-1", "real-1"]
+    assert _bridge_selected_composer_ids(None) == []
 
 
 def test_invalid_cursor_connection_error_matches_applescript_disconnect() -> None:
@@ -351,3 +363,116 @@ async def test_wait_for_submitted_prompt_accepts_repeated_same_text_with_new_bub
 
     assert result is not None
     assert result.composer_id == "composer-123"
+
+
+@pytest.mark.asyncio
+async def test_wait_for_submitted_prompt_checks_all_selected_bridge_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "cursor_app_submit._safe_find_active_composer_id",
+        lambda workspace_root: "empty-1",
+    )
+
+    async def fake_ping(workspace_root: str) -> dict[str, object]:
+        return {
+            "selectedComposerId": "empty-1",
+            "selectedComposerIds": ["empty-1", "real-1"],
+        }
+
+    monkeypatch.setattr("cursor_app_submit.ping_cursor_app_bridge", fake_ping)
+    monkeypatch.setattr(
+        "cursor_app_submit._latest_user_marker",
+        lambda composer_id: CursorUserBubbleMarker(
+            bubble_id="bubble-real",
+            text="Say hi",
+        )
+        if composer_id == "real-1"
+        else None,
+    )
+
+    result = await _wait_for_submitted_prompt(
+        workspace_root="/tmp/repo",
+        prompt="Say hi",
+        baseline_user_markers={},
+        fallback_composer_id="empty-1",
+        timeout_seconds=0.1,
+    )
+
+    assert result is not None
+    assert result.composer_id == "real-1"
+
+
+@pytest.mark.asyncio
+async def test_try_bridge_active_submit_returns_verified_secondary_selected_composer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request_calls: list[dict[str, object]] = []
+
+    async def fake_ping(workspace_root: str) -> dict[str, object]:
+        return {
+            "selectedComposerId": "empty-1",
+            "selectedComposerIds": ["empty-1", "real-1"],
+        }
+
+    async def fake_request_cursor_app_bridge(
+        *,
+        workspace_root: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        request_calls.append(payload)
+        return {"ok": True}
+
+    async def fake_run_active_input_osascript(**kwargs):
+        return None
+
+    async def fake_ensure_cursor_app_bridge(workspace_root: str) -> dict[str, object]:
+        return {
+            "selectedComposerId": "empty-1",
+            "selectedComposerIds": ["empty-1", "real-1"],
+        }
+
+    async def fake_wait_for_submitted_prompt(**kwargs):
+        return CursorAppSubmitResult(composer_id="real-1")
+
+    monkeypatch.setattr("cursor_app_submit.ping_cursor_app_bridge", fake_ping)
+    monkeypatch.setattr(
+        "cursor_app_submit.request_cursor_app_bridge",
+        fake_request_cursor_app_bridge,
+    )
+    monkeypatch.setattr(
+        "cursor_app_submit._run_active_input_osascript",
+        fake_run_active_input_osascript,
+    )
+    monkeypatch.setattr(
+        "cursor_app_submit.ensure_cursor_app_bridge",
+        fake_ensure_cursor_app_bridge,
+    )
+    monkeypatch.setattr(
+        "cursor_app_submit._wait_for_submitted_prompt",
+        fake_wait_for_submitted_prompt,
+    )
+    monkeypatch.setattr(
+        "cursor_app_submit._latest_user_marker",
+        lambda composer_id: None,
+    )
+    monkeypatch.setattr(
+        "cursor_app_submit._safe_find_active_composer_id",
+        lambda workspace_root: "empty-1",
+    )
+
+    result = await _try_bridge_active_submit(
+        workspace_root="/tmp/repo",
+        prompt="Say hi",
+        composer_id="empty-1",
+    )
+
+    assert result is not None
+    assert result.composer_id == "real-1"
+    assert request_calls == [
+        {
+            "method": "exec",
+            "command": "composer.focusComposer",
+            "args": [],
+        }
+    ]

@@ -372,7 +372,12 @@ async def _try_bridge_submit(
     composer_id: str | None,
     method: str,
 ) -> CursorAppSubmitResult | None:
-    baseline_user_markers = _baseline_latest_user_markers(composer_id)
+    bridge_status = await ping_cursor_app_bridge(workspace_root)
+    baseline_user_markers = _baseline_latest_user_markers(
+        workspace_root=workspace_root,
+        bridge_status=bridge_status,
+        fallback_composer_id=composer_id,
+    )
 
     try:
         submit_result = await submit_prompt_via_cursor_app_bridge(
@@ -406,6 +411,12 @@ async def _try_bridge_active_submit(
     prompt: str,
     composer_id: str | None,
 ) -> CursorAppSubmitResult | None:
+    bridge_status = await ping_cursor_app_bridge(workspace_root)
+    baseline_user_markers = _baseline_latest_user_markers(
+        workspace_root=workspace_root,
+        bridge_status=bridge_status,
+        fallback_composer_id=composer_id,
+    )
     try:
         await request_cursor_app_bridge(
             workspace_root=workspace_root,
@@ -440,15 +451,27 @@ async def _try_bridge_active_submit(
         return None
 
     active_bridge_status = await ensure_cursor_app_bridge(workspace_root)
-    active_composer_id = (
-        _bridge_selected_composer_id(active_bridge_status)
-        or _safe_find_active_composer_id(workspace_root)
-        or composer_id
+    verified_result = await _wait_for_submitted_prompt(
+        workspace_root=workspace_root,
+        prompt=prompt,
+        baseline_user_markers=baseline_user_markers,
+        fallback_composer_id=(
+            _bridge_selected_composer_id(active_bridge_status) or composer_id
+        ),
+        timeout_seconds=FALLBACK_SUBMIT_VERIFICATION_TIMEOUT_SECONDS,
     )
-    if not active_composer_id:
+    if verified_result is not None:
+        return verified_result
+
+    active_composer_ids = _candidate_submit_composer_ids(
+        bridge_status=active_bridge_status,
+        active_composer_id=_safe_find_active_composer_id(workspace_root),
+        fallback_composer_id=composer_id,
+    )
+    if not active_composer_ids:
         return None
 
-    return CursorAppSubmitResult(composer_id=active_composer_id)
+    return CursorAppSubmitResult(composer_id=active_composer_ids[0])
 
 
 async def _ensure_selected_composer_id(
@@ -513,11 +536,20 @@ async def _run_active_input_osascript(
 
 
 def _baseline_latest_user_markers(
-    composer_id: str | None,
+    *,
+    workspace_root: str,
+    bridge_status: dict[str, object] | None,
+    fallback_composer_id: str | None,
 ) -> dict[str, CursorUserBubbleMarker | None]:
-    if not composer_id:
-        return {}
-    return {composer_id: _latest_user_marker(composer_id)}
+    active_composer_id = _safe_find_active_composer_id(workspace_root)
+    return {
+        composer_id: _latest_user_marker(composer_id)
+        for composer_id in _candidate_submit_composer_ids(
+            bridge_status=bridge_status,
+            active_composer_id=active_composer_id,
+            fallback_composer_id=fallback_composer_id,
+        )
+    }
 
 
 async def _wait_for_submitted_prompt(
@@ -533,16 +565,12 @@ async def _wait_for_submitted_prompt(
 
     while asyncio.get_running_loop().time() < deadline:
         bridge_status = await ping_cursor_app_bridge(workspace_root)
-        bridge_composer_id = _bridge_selected_composer_id(bridge_status)
         active_composer_id = _safe_find_active_composer_id(workspace_root)
-        candidate_ids: list[str] = []
-        for composer_id in (
-            bridge_composer_id,
-            active_composer_id,
-            fallback_composer_id,
-        ):
-            if composer_id and composer_id not in candidate_ids:
-                candidate_ids.append(composer_id)
+        candidate_ids = _candidate_submit_composer_ids(
+            bridge_status=bridge_status,
+            active_composer_id=active_composer_id,
+            fallback_composer_id=fallback_composer_id,
+        )
 
         for composer_id in candidate_ids:
             latest_user_marker = _latest_user_marker(composer_id)
@@ -622,12 +650,44 @@ async def _refocus_cursor_workspace(workspace_root: str) -> None:
 
 
 def _bridge_selected_composer_id(bridge_status: dict[str, object] | None) -> str | None:
+    selected_composer_ids = _bridge_selected_composer_ids(bridge_status)
+    return selected_composer_ids[0] if selected_composer_ids else None
+
+
+def _bridge_selected_composer_ids(bridge_status: dict[str, object] | None) -> list[str]:
     if not isinstance(bridge_status, dict):
-        return None
+        return []
+
+    selected_ids: list[str] = []
     selected_composer_id = bridge_status.get("selectedComposerId")
     if isinstance(selected_composer_id, str):
-        selected_composer_id = selected_composer_id.strip()
-    return selected_composer_id or None
+        normalized_id = selected_composer_id.strip()
+        if normalized_id:
+            selected_ids.append(normalized_id)
+
+    raw_selected_ids = bridge_status.get("selectedComposerIds")
+    if isinstance(raw_selected_ids, list):
+        for value in raw_selected_ids:
+            if not isinstance(value, str):
+                continue
+            normalized_id = value.strip()
+            if normalized_id and normalized_id not in selected_ids:
+                selected_ids.append(normalized_id)
+
+    return selected_ids
+
+
+def _candidate_submit_composer_ids(
+    *,
+    bridge_status: dict[str, object] | None,
+    active_composer_id: str | None,
+    fallback_composer_id: str | None,
+) -> list[str]:
+    candidate_ids = _bridge_selected_composer_ids(bridge_status)
+    for composer_id in (active_composer_id, fallback_composer_id):
+        if composer_id and composer_id not in candidate_ids:
+            candidate_ids.append(composer_id)
+    return candidate_ids
 
 
 def _composer_has_history(composer_id: str | None) -> bool:

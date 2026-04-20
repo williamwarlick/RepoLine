@@ -149,6 +149,11 @@ class ClaudeProviderStreamAdapter:
                 if not text:
                     continue
 
+                yield TextStreamEvent(
+                    type="assistant_delta",
+                    text=text,
+                    session_id=config.session_id,
+                )
                 for chunk in chunker.feed(text):
                     yield TextStreamEvent(
                         type="speech_chunk",

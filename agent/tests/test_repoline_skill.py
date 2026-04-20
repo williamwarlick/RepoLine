@@ -37,11 +37,21 @@ Use short spoken replies.
     assert resolved.source_path == str(installed_skill)
     assert "RepoLine voice session" in resolved.prompt
     assert "live phone call or browser voice session" in resolved.prompt
-    assert "Do not default to long bullet lists, numbered lists, or menu-style option dumps." in resolved.prompt
-    assert "Answer from the current request, recent conversation, and repo context first" in resolved.prompt
+    assert (
+        "Do not default to long bullet lists, numbered lists, or menu-style option dumps."
+        in resolved.prompt
+    )
+    assert (
+        "Answer from the current request, recent conversation, and repo context first"
+        in resolved.prompt
+    )
+    assert (
+        "Use the provided repo summary for obvious repo-description or onboarding questions"
+        in resolved.prompt
+    )
     assert "stay in discussion mode" in resolved.prompt
     assert "pressure-test the plan instead of agreeing with it" in resolved.prompt
-    assert "Immediate repo context from README.md" in resolved.prompt
+    assert "Immediate repo summary from README.md" in resolved.prompt
     assert "RepoLine is a voice bridge for coding agents." in resolved.prompt
 
 
@@ -61,8 +71,11 @@ def test_resolve_repoline_skill_prompt_respects_explicit_prompt(tmp_path) -> Non
     assert resolved.mode == "env-override"
     assert resolved.prompt.startswith("Speak plainly.")
     assert "RepoLine voice session" in resolved.prompt
-    assert "Use one or two short sentences unless the user explicitly asks for structure." in resolved.prompt
-    assert "Immediate repo context from README.md" in resolved.prompt
+    assert (
+        "Use one or two short sentences unless the user explicitly asks for structure."
+        in resolved.prompt
+    )
+    assert "Immediate repo summary from README.md" in resolved.prompt
 
 
 def test_resolve_repoline_skill_prompt_requires_installed_skill_without_override(
@@ -111,7 +124,8 @@ alwaysApply: true
     assert "pressure-test the plan instead of agreeing with it" in resolved.prompt
     assert "Do not use markdown headings" in resolved.prompt
     assert "If you need to inspect files or run commands" in resolved.prompt
-    assert "Immediate repo context from README.md" not in resolved.prompt
+    assert "Immediate repo summary from README.md" in resolved.prompt
+    assert "RepoLine is a voice bridge." in resolved.prompt
     assert "live phone call or browser voice session" not in resolved.prompt
 
 
@@ -249,4 +263,4 @@ description: Example
         explicit_system_prompt=None,
     )
 
-    assert "Immediate repo context from README.md" not in resolved.prompt
+    assert "Immediate repo summary from README.md" not in resolved.prompt

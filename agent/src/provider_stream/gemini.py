@@ -123,6 +123,11 @@ class GeminiProviderStreamAdapter:
                         continue
 
                     assistant_text += delta_text
+                    yield TextStreamEvent(
+                        type="assistant_delta",
+                        text=delta_text,
+                        session_id=current_session_id,
+                    )
                     for chunk in chunker.feed(delta_text):
                         yield TextStreamEvent(
                             type="speech_chunk",

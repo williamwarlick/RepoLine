@@ -43,6 +43,21 @@ That means:
 - the non-coding Gemini transport is out of scope and removed from the product surface
 - `Cursor App` remains experimental because it is version-sensitive
 
+For current `Cursor Agent` CLI builds in readonly mode, the harness uses Cursor's read-only `ask` mode instead of forcing `--sandbox enabled`, because that sandbox mode can be unavailable on some systems.
+
+## Fast Iteration
+
+Use the smoke pack first when you are testing prompt changes or CLI compatibility:
+
+```bash
+bun run benchmark:latency benchmarks/latency/planning-latency-smoke.json \
+  --json-out output/latency/planning-latency-smoke.jsonl
+python3 ./scripts/latency_report.py output/latency/planning-latency-smoke.jsonl \
+  --markdown-out output/latency/planning-latency-smoke.md
+```
+
+The JSONL file is written incrementally during the run, so you can inspect partial turn records without waiting for the whole pack to finish.
+
 ## Run The Harness
 
 ```bash

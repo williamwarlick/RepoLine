@@ -65,8 +65,18 @@ Do not average `fresh` and `warm` together when making recommendations.
 
 ## Canonical Plans
 
+- [`benchmarks/latency/planning-latency-smoke.json`](../benchmarks/latency/planning-latency-smoke.json): fast smoke pack for day-to-day iteration
 - [`benchmarks/latency/planning-latency-core.json`](../benchmarks/latency/planning-latency-core.json): default coding-agent comparison pack
 - [`benchmarks/latency/prompt-variants-codex.json`](../benchmarks/latency/prompt-variants-codex.json): prompt-engineering pack for Codex
+
+## Run The Smoke Pack
+
+```bash
+bun run benchmark:latency benchmarks/latency/planning-latency-smoke.json \
+  --json-out output/latency/planning-latency-smoke.jsonl
+python3 ./scripts/latency_report.py output/latency/planning-latency-smoke.jsonl \
+  --markdown-out output/latency/planning-latency-smoke.md
+```
 
 ## Run The Core Pack
 
@@ -85,6 +95,8 @@ bun run benchmark:latency benchmarks/latency/prompt-variants-codex.json \
 python3 ./scripts/latency_report.py output/latency/prompt-variants-codex.jsonl \
   --markdown-out output/latency/prompt-variants-codex.md
 ```
+
+`--json-out` now writes incrementally during the run, so you can inspect partial JSONL records before a long pack finishes.
 
 ## Interpretation
 

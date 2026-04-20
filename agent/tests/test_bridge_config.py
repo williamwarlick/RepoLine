@@ -167,7 +167,7 @@ def test_bridge_config_load_defaults_gemini_model_to_flash(
     assert config.provider == "gemini"
     assert config.provider_transport == "cli"
     assert config.model == "gemini-2.5-flash"
-    assert "Use the `repoline-voice-session` skill silently" in config.system_prompt
+    assert "Apply the installed RepoLine voice instructions silently" in config.system_prompt
 
 
 def test_bridge_config_load_supports_thinking_sound_overrides(tmp_path: Path) -> None:

@@ -116,6 +116,11 @@ class CodexProviderStreamAdapter:
                 delta_text = _extract_codex_delta_text(event)
                 if delta_text:
                     assistant_text += delta_text
+                    yield TextStreamEvent(
+                        type="assistant_delta",
+                        text=delta_text,
+                        session_id=current_session_id,
+                    )
                     for chunk in chunker.feed(delta_text):
                         yield TextStreamEvent(
                             type="speech_chunk",
@@ -157,6 +162,11 @@ class CodexProviderStreamAdapter:
                         delta_text = _extract_incremental_text(text, assistant_text)
                         if delta_text:
                             assistant_text += delta_text
+                            yield TextStreamEvent(
+                                type="assistant_delta",
+                                text=delta_text,
+                                session_id=current_session_id,
+                            )
                             for chunk in chunker.feed(delta_text):
                                 yield TextStreamEvent(
                                     type="speech_chunk",
@@ -181,6 +191,11 @@ class CodexProviderStreamAdapter:
                             or assistant_text
                         )
                         if assistant_text:
+                            yield TextStreamEvent(
+                                type="assistant_delta",
+                                text=assistant_text,
+                                session_id=current_session_id,
+                            )
                             for chunk in chunker.feed(assistant_text):
                                 yield TextStreamEvent(
                                     type="speech_chunk",

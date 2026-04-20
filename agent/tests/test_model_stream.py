@@ -147,7 +147,9 @@ def test_build_cursor_command_defaults_to_composer_2_fast() -> None:
     assert "--model" in command
     assert "composer-2-fast" in command
     assert "--trust" in command
-    assert "--mode" not in command
+    assert "--mode" in command
+    assert "ask" in command
+    assert "--sandbox" not in command
     assert "readonly mode" in command[-1]
     assert command[-1].endswith("User request:\nHello")
 
@@ -162,13 +164,13 @@ def test_build_cursor_command_can_resume_session() -> None:
 
     command = build_cursor_command(config)
 
-    assert "--mode" not in command
+    assert "--mode" in command
+    assert "ask" in command
     assert "--resume" in command
     assert "cursor-chat-123" in command
     assert "-f" not in command
     assert "--approve-mcps" not in command
-    assert "--sandbox" in command
-    assert "enabled" in command
+    assert "--sandbox" not in command
     assert "--trust" in command
     assert "--stream-partial-output" in command
     assert "readonly mode" in command[-1]
@@ -242,7 +244,9 @@ def test_build_gemini_command_rejects_non_cli_transport() -> None:
         thinking_level="low",
     )
 
-    with pytest.raises(ValueError, match="Gemini only supports the Gemini CLI transport"):
+    with pytest.raises(
+        ValueError, match="Gemini only supports the Gemini CLI transport"
+    ):
         build_gemini_command(config)
 
 
@@ -344,7 +348,9 @@ def test_extract_incremental_text_ignores_whitespace_only_cursor_replays() -> No
     )
 
 
-def test_extract_incremental_text_preserves_new_suffix_after_whitespace_reformat() -> None:
+def test_extract_incremental_text_preserves_new_suffix_after_whitespace_reformat() -> (
+    None
+):
     assert (
         _extract_incremental_text(
             "I found the issue.\n\nIt is in the Cursor result handler. I am patching it now.",

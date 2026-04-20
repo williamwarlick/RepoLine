@@ -66,8 +66,10 @@ class CursorProviderStreamAdapter:
         if config.access_policy == "owner":
             cmd.extend(["--sandbox", "disabled"])
             cmd.append("--approve-mcps")
-        else:
-            cmd.extend(["--sandbox", "enabled"])
+        elif config.access_policy == "readonly":
+            # Current cursor-agent builds on this machine reject sandbox=enabled.
+            # Ask mode preserves a read-only planning/Q&A contract without that flag.
+            cmd.extend(["--mode", "ask"])
         model = config.model or DEFAULT_CURSOR_MODEL
         if model:
             cmd.extend(["--model", model])
@@ -113,7 +115,10 @@ class CursorProviderStreamAdapter:
                     current_session_id = session_id
 
                 event_type = _string_value(event.get("type"))
-                if event_type == "system" and _string_value(event.get("subtype")) == "init":
+                if (
+                    event_type == "system"
+                    and _string_value(event.get("subtype")) == "init"
+                ):
                     yield TextStreamEvent(
                         type="status",
                         message=f"{provider_name} started a session.",
@@ -145,6 +150,11 @@ class CursorProviderStreamAdapter:
                         continue
 
                     assistant_text += delta_text
+                    yield TextStreamEvent(
+                        type="assistant_delta",
+                        text=delta_text,
+                        session_id=current_session_id,
+                    )
                     for chunk in chunker.feed(delta_text):
                         yield TextStreamEvent(
                             type="speech_chunk",
@@ -173,6 +183,11 @@ class CursorProviderStreamAdapter:
                     delta_text = _extract_incremental_text(result_text, assistant_text)
                     if delta_text:
                         assistant_text += delta_text
+                        yield TextStreamEvent(
+                            type="assistant_delta",
+                            text=delta_text,
+                            session_id=current_session_id,
+                        )
                         for chunk in chunker.feed(delta_text):
                             yield TextStreamEvent(
                                 type="speech_chunk",

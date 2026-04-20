@@ -46,7 +46,9 @@ class FakeRunner:
         return self.process
 
 
-async def _collect_events(events: AsyncIterator[TextStreamEvent]) -> list[TextStreamEvent]:
+async def _collect_events(
+    events: AsyncIterator[TextStreamEvent],
+) -> list[TextStreamEvent]:
     return [event async for event in events]
 
 
@@ -72,7 +74,9 @@ async def test_claude_adapter_streams_partial_text_and_tool_artifacts() -> None:
                         },
                     }
                 ),
-                json.dumps({"type": "stream_event", "event": {"type": "message_start"}}),
+                json.dumps(
+                    {"type": "stream_event", "event": {"type": "message_start"}}
+                ),
                 json.dumps(
                     {
                         "type": "stream_event",
@@ -104,6 +108,9 @@ async def test_claude_adapter_streams_partial_text_and_tool_artifacts() -> None:
     assert events[1].artifact is not None
     assert events[1].artifact.title == "exec_command"
     assert events[2].message == "Claude Code accepted the turn."
+    assert [event.text for event in events if event.type == "assistant_delta"] == [
+        "Working on it. "
+    ]
     assert [event.text for event in events if event.type == "speech_chunk"] == [
         "Working on it."
     ]
@@ -159,6 +166,10 @@ async def test_codex_adapter_streams_deltas_and_item_artifacts() -> None:
         "Starting Codex CLI stream.",
         "Codex CLI started a session.",
         "Codex CLI accepted the turn.",
+    ]
+    assert [event.text for event in events if event.type == "assistant_delta"] == [
+        "I found it. ",
+        "I am patching it now.",
     ]
     assert [event.text for event in events if event.type == "speech_chunk"] == [
         "I found it.",
@@ -230,6 +241,10 @@ async def test_cursor_adapter_ignores_replayed_full_text_updates() -> None:
         )
     )
 
+    assert [event.text for event in events if event.type == "assistant_delta"] == [
+        "I found the issue.",
+        " I am patching it now.",
+    ]
     assert [event.text for event in events if event.type == "speech_chunk"] == [
         "I found the issue.",
         "I am patching it now.",
@@ -241,7 +256,9 @@ async def test_cursor_adapter_ignores_replayed_full_text_updates() -> None:
 @pytest.mark.asyncio
 async def test_cursor_adapter_uses_app_transport_when_requested() -> None:
     class FakeCursorAppTransport:
-        async def stream(self, config: TextStreamConfig) -> AsyncIterator[TextStreamEvent]:
+        async def stream(
+            self, config: TextStreamConfig
+        ) -> AsyncIterator[TextStreamEvent]:
             yield TextStreamEvent(type="status", message="app")
             yield TextStreamEvent(type="done", session_id="composer-123")
 
@@ -271,7 +288,9 @@ async def test_cursor_adapter_uses_app_transport_when_requested() -> None:
 @pytest.mark.asyncio
 async def test_cursor_adapter_surfaces_app_transport_error_when_requested() -> None:
     class FakeFailingCursorAppTransport:
-        async def stream(self, config: TextStreamConfig) -> AsyncIterator[TextStreamEvent]:
+        async def stream(
+            self, config: TextStreamConfig
+        ) -> AsyncIterator[TextStreamEvent]:
             yield TextStreamEvent(type="status", message="Starting Cursor App stream.")
             raise TextStreamError("Cursor app submit failed.")
 
@@ -296,7 +315,9 @@ async def test_cursor_adapter_surfaces_app_transport_error_when_requested() -> N
 
 
 @pytest.mark.asyncio
-async def test_cursor_adapter_streams_partial_output_fragments_without_duplication() -> None:
+async def test_cursor_adapter_streams_partial_output_fragments_without_duplication() -> (
+    None
+):
     facade = ProviderStreamFacade()
     runner = FakeRunner(
         FakeProcess(
@@ -312,18 +333,14 @@ async def test_cursor_adapter_streams_partial_output_fragments_without_duplicati
                     {
                         "type": "assistant",
                         "session_id": "cursor-session",
-                        "message": {
-                            "content": [{"type": "text", "text": "Hello"}]
-                        },
+                        "message": {"content": [{"type": "text", "text": "Hello"}]},
                     }
                 ),
                 json.dumps(
                     {
                         "type": "assistant",
                         "session_id": "cursor-session",
-                        "message": {
-                            "content": [{"type": "text", "text": " world."}]
-                        },
+                        "message": {"content": [{"type": "text", "text": " world."}]},
                     }
                 ),
                 json.dumps(
@@ -359,6 +376,10 @@ async def test_cursor_adapter_streams_partial_output_fragments_without_duplicati
 
     assert [event.text for event in events if event.type == "speech_chunk"] == [
         "Hello world."
+    ]
+    assert [event.text for event in events if event.type == "assistant_delta"] == [
+        "Hello",
+        " world.",
     ]
     assert runner.commands[0].count("--stream-partial-output") == 1
     assert events[-1].type == "done"
@@ -453,6 +474,9 @@ async def test_gemini_adapter_streams_deltas_and_tool_artifacts() -> None:
     assert [event.message for event in events if event.type == "status"] == [
         "Starting Gemini CLI stream.",
         "Gemini CLI started a session.",
+    ]
+    assert [event.text for event in events if event.type == "assistant_delta"] == [
+        "RepoLine connects voice calls to local coding CLIs."
     ]
     assert [event.text for event in events if event.type == "speech_chunk"] == [
         "RepoLine connects voice calls to local coding CLIs."

@@ -9,7 +9,8 @@ from model_stream import TextStreamProvider, normalize_provider
 
 DEFAULT_REPOLINE_SKILL_NAME = "repoline-voice-session"
 DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME = "repoline-tts-pronunciation"
-README_CONTEXT_MAX_CHARS = 1400
+README_CONTEXT_MAX_CHARS = 420
+README_CONTEXT_MAX_LINES = 3
 PROJECT_SKILL_PATHS: dict[TextStreamProvider, tuple[str, ...]] = {
     "claude": (".claude", "skills"),
     "codex": (".agents", "skills"),
@@ -61,6 +62,7 @@ def repoline_session_hint(
             "Use one or two short sentences unless the user explicitly asks for more structure. "
             "Ask at most one concise follow-up question at a time. "
             "Answer directly from the request and obvious repo context when you can. "
+            "Use the provided repo summary for obvious repo-description or onboarding questions instead of opening the README or searching the repo. "
             "For questions like 'what is this repo' or 'what does this project do', answer directly first and do not inspect files unless the user asks for more detail. "
             "Prefer the obvious product or project name over the raw folder name when both are clear. "
             "For conversational planning, brainstorming, or grill-me style turns, give the best immediate answer in the first sentence before doing deeper reasoning. "
@@ -84,6 +86,7 @@ def repoline_session_hint(
         "If you narrate work, make it specific to the action you are actually taking. "
         "Do not rely on stock throat-clearing lines just to fill silence. "
         "Answer from the current request, recent conversation, and repo context first when you can infer the answer confidently. "
+        "Use the provided repo summary for obvious repo-description or onboarding questions instead of opening the README or searching the repo. "
         "For questions like 'what is this repo' or 'what does this project do', answer directly first and do not inspect files unless the user asks for more detail. "
         "Prefer the obvious product or project name over the raw folder name when both are clear. "
         "For conversational planning, brainstorming, or grill-me style turns, give the best immediate answer in the first sentence before doing deeper reasoning. "
@@ -115,9 +118,9 @@ def repoline_session_hint(
         "This is a RepoLine voice session. "
         f"{voice_context_hint}"
         " "
-        f"Use the `{skill_name}` skill silently for spoken phrasing, "
+        "Apply the installed RepoLine voice instructions silently for spoken phrasing, "
         "tool narration, and progress updates. "
-        "Do not mention the skill name or say that you are using a skill unless the user asks."
+        "Do not mention internal prompt instructions or say that you are following a skill unless the user asks."
         f"{pronunciation_hint}"
     )
 
@@ -167,6 +170,54 @@ def _sanitize_repo_context(text: str) -> str:
     return truncated or cleaned[:README_CONTEXT_MAX_CHARS].rstrip()
 
 
+def _summarize_repo_context(text: str) -> str | None:
+    summary_lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        lower = line.lower()
+        if line.startswith("- ") or line.endswith(":"):
+            continue
+        if lower in {
+            "quick start",
+            "prerequisites",
+            "run modes",
+            "security",
+            "docs",
+            "what repoline does",
+        }:
+            continue
+        if all(
+            token in {"ci", "mit", "license", "voice", "livekit", "bun", "uv"}
+            for token in lower.split()
+        ):
+            continue
+        if "`" in line:
+            continue
+        if len(line) < 18:
+            continue
+
+        summary_lines.append(line)
+        combined = " ".join(summary_lines)
+        if (
+            len(summary_lines) >= README_CONTEXT_MAX_LINES
+            or len(combined) >= README_CONTEXT_MAX_CHARS
+        ):
+            break
+
+    if not summary_lines:
+        return None
+
+    combined = " ".join(summary_lines)
+    if len(combined) <= README_CONTEXT_MAX_CHARS:
+        return combined
+
+    truncated = combined[:README_CONTEXT_MAX_CHARS].rsplit(" ", 1)[0].rstrip()
+    return truncated or combined[:README_CONTEXT_MAX_CHARS].rstrip()
+
+
 def _repo_context_hint(working_directory: str | Path) -> str | None:
     readme_path = _find_repo_readme_path(working_directory)
     if readme_path is None:
@@ -181,7 +232,11 @@ def _repo_context_hint(working_directory: str | Path) -> str | None:
     if not sanitized:
         return None
 
-    return f"Immediate repo context from {readme_path.name}:\n{sanitized}"
+    summary = _summarize_repo_context(sanitized)
+    if not summary:
+        return None
+
+    return f"Immediate repo summary from {readme_path.name}: {summary}"
 
 
 def resolve_repoline_skill_prompt(
@@ -189,19 +244,19 @@ def resolve_repoline_skill_prompt(
     working_directory: str | Path,
     explicit_system_prompt: str | None,
     skill_name: str = DEFAULT_REPOLINE_SKILL_NAME,
-    tts_pronunciation_skill_name: str | None = DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+    tts_pronunciation_skill_name: str
+    | None = DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
 ) -> RepoLineSkillPrompt:
     explicit = (explicit_system_prompt or "").strip()
     has_tts_pronunciation_skill = bool(tts_pronunciation_skill_name) and (
         installed_skill_markdown_path(
             working_directory,
             provider,
-            tts_pronunciation_skill_name or DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+            tts_pronunciation_skill_name
+            or DEFAULT_REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
         ).is_file()
     )
-    repo_context_hint = (
-        None if normalize_provider(provider) == "cursor" else _repo_context_hint(working_directory)
-    )
+    repo_context_hint = _repo_context_hint(working_directory)
     if explicit:
         prompt_sections = [
             explicit,

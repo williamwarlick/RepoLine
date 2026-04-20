@@ -5,12 +5,15 @@ import json
 import pytest
 
 from latency_harness import (
+    BenchmarkPlan,
     BenchmarkScenario,
+    BenchmarkTurnResult,
     CursorCommandAccumulator,
     ProviderCommandAccumulator,
     build_scenario_config,
     load_benchmark_plan,
     measure_provider_stream_turn,
+    run_benchmark_plan,
 )
 from model_stream import TextStreamConfig, TextStreamEvent
 
@@ -28,7 +31,7 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
                 "scenarios": [
                     {
                         "name": "stream",
-                "kind": "provider_stream",
+                        "kind": "provider_stream",
                         "prompt": "What does RepoLine do?",
                         "provider_submit_mode": "bridge-composer-handle",
                         "latency_archetype": "planning-question",
@@ -99,7 +102,12 @@ alwaysApply: true
     assert config.system_prompt.startswith("Speak plainly.")
     assert config.provider_submit_mode == "bridge-composer-handle"
     assert "RepoLine voice session" in config.system_prompt
-    assert "Answer directly from the request and obvious repo context when you can." in config.system_prompt
+    assert (
+        "Answer directly from the request and obvious repo context when you can."
+        in config.system_prompt
+    )
+    assert "Immediate repo summary from README.md:" in config.system_prompt
+    assert "RepoLine is a voice bridge for coding agents." in config.system_prompt
 
 
 @pytest.mark.asyncio
@@ -129,6 +137,26 @@ async def test_measure_provider_stream_turn_tracks_first_chunk_and_done() -> Non
     assert result.session_id == "cursor-session"
     assert result.status_count == 1
     assert result.speech_chunk_count == 1
+
+
+@pytest.mark.asyncio
+async def test_measure_provider_stream_turn_classifies_stream_exceptions_as_provider_errors() -> None:
+    async def failing_stream(_config: TextStreamConfig):
+        yield TextStreamEvent(type="status", message="Starting Cursor Agent stream.")
+        raise RuntimeError("app submit failed")
+
+    result = await measure_provider_stream_turn(
+        TextStreamConfig(provider="cursor", prompt="Hello"),
+        scenario_name="stream",
+        repeat_index=1,
+        turn_index=1,
+        stream_events=failing_stream,
+    )
+
+    assert result.outcome == "provider_error"
+    assert result.error_message == "app submit failed"
+    assert result.provider_first_status_message == "Starting Cursor Agent stream."
+    assert result.completed_turn_ms >= 0
 
 
 def test_cursor_command_accumulator_tracks_first_assistant_and_chunk() -> None:
@@ -275,3 +303,76 @@ def test_provider_command_accumulator_tracks_openclaw_json_output() -> None:
     assert accumulator.provider_first_assistant_preview == "RepoLine is a voice bridge."
     assert accumulator.spoken_response_latency_ms == 2300.0
     assert accumulator.spoken_response_preview == "RepoLine is a voice bridge."
+
+
+@pytest.mark.asyncio
+async def test_run_benchmark_plan_streams_turn_results_to_observer(monkeypatch) -> None:
+    observed_prompt_ids: list[str] = []
+    observed_previews: list[str | None] = []
+
+    async def fake_measure_provider_stream_turn(
+        config: TextStreamConfig, **_: object
+    ) -> BenchmarkTurnResult:
+        return BenchmarkTurnResult(
+            scenario_name="stream",
+            scenario_kind="provider_stream",
+            provider=config.provider,
+            provider_transport=config.provider_transport,
+            model=config.model,
+            thinking_level=config.thinking_level,
+            access_policy=config.access_policy,
+            report_group=None,
+            latency_archetype=None,
+            prompt_variant=None,
+            prompt_id="repo-summary-1",
+            session_state="fresh",
+            repeat_index=1,
+            turn_index=1,
+            prompt=config.prompt,
+            turn_label=None,
+            command=("codex", "exec"),
+            working_directory=config.working_directory,
+            outcome="ok",
+            provider_first_status_ms=10.0,
+            provider_first_status_message="Starting Codex CLI stream.",
+            provider_first_assistant_delta_ms=24.0,
+            provider_first_assistant_preview="RepoLine is quick.",
+            spoken_response_latency_ms=24.0,
+            spoken_response_preview="RepoLine is quick.",
+            completed_turn_ms=80.0,
+            response_text="RepoLine is quick.",
+            exit_code=0,
+            session_id="session-1",
+            error_message=None,
+            status_count=1,
+            speech_chunk_count=1,
+            line_count=0,
+        )
+
+    monkeypatch.setattr(
+        "latency_harness.measure_provider_stream_turn",
+        fake_measure_provider_stream_turn,
+    )
+
+    results = await run_benchmark_plan(
+        BenchmarkPlan(
+            scenarios=(
+                BenchmarkScenario(
+                    name="stream",
+                    kind="provider_stream",
+                    provider="codex",
+                    working_directory="/tmp",
+                    prompt="What does RepoLine do?",
+                    prompt_id="repo-summary-1",
+                ),
+            )
+        ),
+        on_turn_result=lambda turn: (
+            observed_prompt_ids.append(turn.prompt_id),
+            observed_previews.append(turn.provider_first_assistant_preview),
+        ),
+    )
+
+    assert observed_prompt_ids == ["repo-summary-1"]
+    assert observed_previews == ["RepoLine is quick."]
+    assert results[0].turns[0].provider_first_assistant_preview == "RepoLine is quick."
