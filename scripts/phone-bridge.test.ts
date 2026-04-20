@@ -10,6 +10,8 @@ import {
   loadSetupState,
   REPOLINE_SKILL_NAME,
   REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+  saveSetupState,
+  writeEnvFile,
 } from './bridge-runtime-config';
 import {
   formatSearchablePhoneNumber,
@@ -60,9 +62,32 @@ test('parseCliArgs parses non-interactive setup flags', () => {
   });
 });
 
+test('parseCliArgs parses setup preset and phone-only flags', () => {
+  expect(
+    parseCliArgs([
+      'setup',
+      '--preset',
+      'codex-browser',
+      '--phone-only',
+      '--pin',
+      '2468',
+    ])
+  ).toEqual({
+    command: 'setup',
+    setupOptions: {
+      preset: 'codex-browser',
+      phoneOnly: true,
+      setupPhone: true,
+      phonePin: '2468',
+    },
+  });
+});
+
 test('parseCliArgs rejects unknown setup flags', () => {
   expect(() => parseCliArgs(['setup', '--wat'])).toThrow('unknown setup option');
   expect(() => parseCliArgs(['setup', '--provider'])).toThrow('--provider requires a value');
+  expect(() => parseCliArgs(['setup', '--preset', 'wat'])).toThrow('unsupported --preset value');
+  expect(() => parseCliArgs(['setup', '--pin', '12'])).toThrow('--pin requires exactly 4 digits');
 });
 
 test('normalizeLiveKitProjects keeps only complete project records', () => {
@@ -298,6 +323,88 @@ test('setup smoke test runs non-interactively with stub CLIs', () => {
   }
 });
 
+test('phone-only setup reuses existing runtime config and wires dispatch quickly', () => {
+  const fixtureDir = mkdtempSync(join(tmpdir(), 'phone-bridge-phone-only-'));
+
+  try {
+    const repoRoot = createSetupFixture(fixtureDir);
+    const workdir = join(repoRoot, 'workdir');
+    const fakeBinDir = join(repoRoot, 'fake-bin');
+    const commandLogPath = join(repoRoot, 'commands.log');
+
+    mkdirSync(join(workdir, '.git'), { recursive: true });
+    mkdirSync(fakeBinDir, { recursive: true });
+    writePhoneOnlyFakeExecutables(fakeBinDir, commandLogPath);
+
+    writeEnvFile(join(repoRoot, 'agent', '.env.local'), {
+      LIVEKIT_URL: 'wss://demo.livekit.cloud',
+      LIVEKIT_API_KEY: 'lk_key',
+      LIVEKIT_API_SECRET: 'lk_secret',
+      LIVEKIT_AGENT_NAME: 'smoke-agent',
+      BRIDGE_CLI_PROVIDER: 'codex',
+      BRIDGE_WORKDIR: workdir,
+      REPOLINE_SKILL_NAME,
+      REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+    });
+    writeEnvFile(join(repoRoot, 'frontend', '.env.local'), {
+      LIVEKIT_API_KEY: 'lk_key',
+      LIVEKIT_API_SECRET: 'lk_secret',
+      LIVEKIT_URL: 'wss://demo.livekit.cloud',
+      AGENT_NAME: 'smoke-agent',
+      NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
+    });
+    saveSetupState(join(repoRoot, '.bridge', 'state.json'), {
+      configured_at: '2026-04-20T00:00:00.000Z',
+      livekit_project_name: 'demo',
+      livekit_url: 'wss://demo.livekit.cloud',
+      bridge_provider: 'codex',
+      workdir,
+      agent_name: 'smoke-agent',
+      phone: null,
+    });
+
+    const result = spawnSync(
+      process.execPath,
+      [
+        'run',
+        join(repoRoot, 'scripts', 'phone-bridge.ts'),
+        'setup',
+        '--phone-only',
+        '--pin',
+        '2468',
+      ],
+      {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          PATH: `${fakeBinDir}:${process.env.PATH ?? ''}`,
+          REPOLINE_TEST_COMMAND_LOG: commandLogPath,
+        },
+        encoding: 'utf8',
+      }
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Phone setup complete.');
+
+    const state = loadSetupState(join(repoRoot, '.bridge', 'state.json'));
+    expect(state?.phone).toEqual({
+      number: '+14845550123',
+      pin: '2468',
+      dispatchRuleName: 'smoke-agent-inbound',
+      dispatchRuleId: 'rule_123',
+    });
+
+    const commandLog = readFileSync(commandLogPath, 'utf8');
+    expect(commandLog).toContain('lk project list -j');
+    expect(commandLog).toContain('lk --project demo number list -j');
+    expect(commandLog).toContain('lk --project demo sip dispatch list -j');
+    expect(commandLog).toContain('lk --project demo sip dispatch update --id rule_123 -');
+  } finally {
+    rmSync(fixtureDir, { recursive: true, force: true });
+  }
+});
+
 function createSetupFixture(root: string): string {
   const repoRoot = join(root, 'fixture');
   mkdirSync(repoRoot, { recursive: true });
@@ -393,6 +500,33 @@ exit 0
   );
 
   writeFileSync(commandLogPath, '');
+}
+
+function writePhoneOnlyFakeExecutables(fakeBinDir: string, commandLogPath: string): void {
+  writeExecutable(
+    join(fakeBinDir, 'lk'),
+    `#!/bin/sh
+printf '%s\n' "lk $*" >> "$REPOLINE_TEST_COMMAND_LOG"
+if [ "$1" = "project" ] && [ "$2" = "list" ] && [ "$3" = "-j" ]; then
+  printf '%s\n' '[{"Name":"demo","URL":"wss://demo.livekit.cloud","APIKey":"lk_key","APISecret":"lk_secret","ProjectId":"proj_123"}]'
+  exit 0
+fi
+if [ "$1" = "--project" ] && [ "$2" = "demo" ] && [ "$3" = "number" ] && [ "$4" = "list" ] && [ "$5" = "-j" ]; then
+  printf '%s\n' '{"items":[{"id":"pn_123","e164Format":"+14845550123","locality":"PHILADELPHIA","region":"PA","status":"PHONE_NUMBER_STATUS_ACTIVE"}]}'
+  exit 0
+fi
+if [ "$1" = "--project" ] && [ "$2" = "demo" ] && [ "$3" = "sip" ] && [ "$4" = "dispatch" ] && [ "$5" = "list" ] && [ "$6" = "-j" ]; then
+  printf '%s\n' '{"items":[{"name":"smoke-agent-inbound","sipDispatchRuleId":"rule_123","inboundNumbers":["+14845550123"]}]}'
+  exit 0
+fi
+if [ "$1" = "--project" ] && [ "$2" = "demo" ] && [ "$3" = "sip" ] && [ "$4" = "dispatch" ] && [ "$5" = "update" ] && [ "$6" = "--id" ] && [ "$7" = "rule_123" ] && [ "$8" = "-" ]; then
+  cat >/dev/null
+  exit 0
+fi
+printf '%s\n' "unexpected lk args: $*" >&2
+exit 1
+`
+  );
 }
 
 function writeExecutable(pathValue: string, contents: string): void {

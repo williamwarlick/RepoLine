@@ -73,6 +73,7 @@ export type SearchablePhoneNumberRecord = {
 };
 
 type BridgeCommand = 'setup' | 'dev' | 'live' | 'agent' | 'doctor';
+type SetupPreset = 'codex-browser';
 
 type SetupCommandOptions = {
   bridgeProvider?: BridgeProvider;
@@ -80,6 +81,9 @@ type SetupCommandOptions = {
   workdir?: string;
   agentName?: string;
   setupPhone?: boolean;
+  phoneOnly?: boolean;
+  preset?: SetupPreset;
+  phonePin?: string;
 };
 
 type ParsedCliArgs = {
@@ -128,11 +132,14 @@ function printHelp(): void {
       `Usage: bun run ${basename(__filename)} <setup|dev|live|agent|doctor> [options]`,
       '',
       'Setup options:',
+      '  --preset <name>         Use codex-browser for the boring browser-first path',
       '  --provider <name>       Choose claude, codex, cursor, or gemini',
       '  --project <name>        Use a specific linked LiveKit project',
       '  --workdir <path>        Set the coding CLI workdir without prompting',
       '  --agent-name <name>     Set the LiveKit agent name without prompting',
+      '  --pin <digits>          Use this 4-digit inbound caller PIN for phone setup',
       '  --skip-phone            Skip phone setup without prompting',
+      '  --phone-only            Reuse the existing setup and wire phone access only',
     ].join('\n')
   );
 }
@@ -148,6 +155,16 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
       switch (arg) {
         case '--skip-phone':
           setupOptions.setupPhone = false;
+          break;
+        case '--phone-only':
+          setupOptions.phoneOnly = true;
+          setupOptions.setupPhone = true;
+          break;
+        case '--preset':
+          setupOptions.preset = parseSetupPresetFlag(
+            readRequiredFlagValue('--preset', rest[index + 1])
+          );
+          index += 1;
           break;
         case '--provider':
           setupOptions.bridgeProvider = parseBridgeProviderFlag(
@@ -165,6 +182,12 @@ export function parseCliArgs(argv: string[]): ParsedCliArgs {
           break;
         case '--agent-name':
           setupOptions.agentName = readRequiredFlagValue('--agent-name', rest[index + 1]);
+          index += 1;
+          break;
+        case '--pin':
+          setupOptions.phonePin = parsePhonePinFlag(
+            readRequiredFlagValue('--pin', rest[index + 1])
+          );
           index += 1;
           break;
         default:
@@ -187,6 +210,14 @@ function readRequiredFlagValue(flag: string, value: string | undefined): string 
   return trimmed;
 }
 
+function parseSetupPresetFlag(value: string): SetupPreset {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'codex-browser') {
+    return 'codex-browser';
+  }
+  throw new BridgeCliError(`unsupported --preset value: ${value}`);
+}
+
 function parseBridgeProviderFlag(value: string): BridgeProvider {
   const normalized = value.trim().toLowerCase();
   if (normalized === 'claude') {
@@ -202,6 +233,14 @@ function parseBridgeProviderFlag(value: string): BridgeProvider {
     return 'gemini';
   }
   throw new BridgeCliError(`unsupported --provider value: ${value}`);
+}
+
+function parsePhonePinFlag(value: string): string {
+  const normalized = value.trim();
+  if (!/^\d{4}$/.test(normalized)) {
+    throw new BridgeCliError('--pin requires exactly 4 digits');
+  }
+  return normalized;
 }
 
 function isBridgeCommand(value: string | undefined): value is BridgeCommand {
@@ -241,9 +280,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
 }
 
 async function setupCommand(options?: SetupCommandOptions): Promise<void> {
+  const normalizedOptions = applySetupPreset(options ?? {});
   intro('RepoLine');
   note(
-    'This will install missing setup tooling when possible, link LiveKit if needed, write local env files, install the RepoLine voice and pronunciation skills into your selected repo, install dependencies, and optionally wire a project phone number.',
+    normalizedOptions.phoneOnly
+      ? 'This reuses the existing RepoLine setup, then attaches or updates phone access without rerunning the full dependency install.'
+      : 'This will install missing setup tooling when possible, link LiveKit if needed, write local env files, install the RepoLine voice and pronunciation skills into your selected repo, install dependencies, and optionally wire a project phone number.',
     'Setup'
   );
 
@@ -253,12 +295,17 @@ async function setupCommand(options?: SetupCommandOptions): Promise<void> {
 
   const ui = createPrompter();
   try {
+    if (normalizedOptions.phoneOnly) {
+      await setupPhoneOnly(ui, agentEnv, frontendEnv, existingState, normalizedOptions);
+      return;
+    }
+
     await ensureToolsAvailable(ui, ['lk', 'uv', 'bun'], 'RepoLine setup');
     const bridgeProvider = await selectBridgeProvider(
       ui,
       agentEnv,
       existingState,
-      options?.bridgeProvider
+      normalizedOptions.bridgeProvider
     );
     await ensureToolsAvailable(
       ui,
@@ -267,20 +314,20 @@ async function setupCommand(options?: SetupCommandOptions): Promise<void> {
     );
     await ensureProviderAuthenticated(ui, bridgeProvider);
 
-    const project = await selectLiveKitProject(ui, agentEnv, options?.livekitProjectName);
+    const project = await selectLiveKitProject(ui, agentEnv, normalizedOptions.livekitProjectName);
     const projectNumbers = listPhoneNumbers(project.name);
     const agentNameDefault =
       agentEnv.LIVEKIT_AGENT_NAME ??
       frontendEnv.AGENT_NAME ??
       existingState?.agent_name ??
       'clawdbot-agent';
-    const agentName = options?.agentName
-      ? noteAndReturn(options.agentName, `Using LiveKit agent name: ${options.agentName}`, 'Agent name')
+    const agentName = normalizedOptions.agentName
+      ? noteAndReturn(normalizedOptions.agentName, `Using LiveKit agent name: ${normalizedOptions.agentName}`, 'Agent name')
       : await ui.promptText('LiveKit agent name', agentNameDefault);
     const workdir = await selectWorkdir(
       ui,
       agentEnv.BRIDGE_WORKDIR ?? existingState?.workdir ?? null,
-      options?.workdir
+      normalizedOptions.workdir
     );
     const ttsModel =
       agentEnv.ELEVENLABS_TTS_MODEL ?? agentEnv.LIVEKIT_TTS_MODEL ?? 'cartesia/sonic-3';
@@ -303,9 +350,12 @@ async function setupCommand(options?: SetupCommandOptions): Promise<void> {
         ttsVoice,
       });
 
-    let phoneConfig: PhoneConfig | null = null;
+    let phoneConfig: PhoneConfig | null =
+      existingState?.phone && existingState.livekit_project_name === project.name
+        ? existingState.phone
+        : null;
     const shouldSetupPhone =
-      options?.setupPhone ??
+      normalizedOptions.setupPhone ??
       (await ui.promptBool(
         'Configure an inbound phone number now?',
         projectNumbers.length > 0 || existingState?.phone != null
@@ -316,7 +366,8 @@ async function setupCommand(options?: SetupCommandOptions): Promise<void> {
         project,
         agentName,
         existingState?.phone ?? null,
-        projectNumbers
+        projectNumbers,
+        normalizedOptions.phonePin
       );
     }
 
@@ -363,11 +414,109 @@ async function setupCommand(options?: SetupCommandOptions): Promise<void> {
     note(summaryLines.join('\n'), 'Setup complete');
     if (phoneConfig) {
       note(formatPhoneInstructions(phoneConfig), 'Call In');
+    } else {
+      note(
+        'When the browser flow is working, run `bun run setup:phone` to attach phone access without rerunning the full setup.',
+        'Next step'
+      );
     }
     outro('Setup complete. Run `bun run live` when you are ready to start RepoLine.');
   } finally {
     ui.close();
   }
+}
+
+function applySetupPreset(options: SetupCommandOptions): SetupCommandOptions {
+  if (!options.preset) {
+    return options;
+  }
+
+  if (options.preset === 'codex-browser') {
+    return {
+      ...options,
+      bridgeProvider: options.bridgeProvider ?? 'codex',
+      setupPhone: options.phoneOnly ? true : options.setupPhone ?? false,
+    };
+  }
+
+  return options;
+}
+
+async function setupPhoneOnly(
+  ui: ReturnType<typeof createPrompter>,
+  agentEnv: Record<string, string>,
+  frontendEnv: Record<string, string>,
+  existingState: SetupState | null,
+  options: SetupCommandOptions
+): Promise<void> {
+  if (!existingState) {
+    throw new BridgeCliError(
+      'run `bun run setup --preset codex-browser` or `bun run setup --skip-phone` first.'
+    );
+  }
+
+  await ensureToolsAvailable(ui, ['lk'], 'RepoLine phone setup');
+  const bridgeProvider = normalizeBridgeProvider(
+    agentEnv.BRIDGE_CLI_PROVIDER ?? existingState.bridge_provider
+  );
+  const workdir = validateWorkdir(agentEnv.BRIDGE_WORKDIR ?? existingState.workdir);
+  const project = await selectLiveKitProject(
+    ui,
+    agentEnv,
+    options.livekitProjectName ?? existingState.livekit_project_name
+  );
+  const projectNumbers = listPhoneNumbers(project.name);
+  const agentName =
+    options.agentName
+      ? noteAndReturn(options.agentName, `Using LiveKit agent name: ${options.agentName}`, 'Agent name')
+      : noteAndReturn(
+          agentEnv.LIVEKIT_AGENT_NAME ?? frontendEnv.AGENT_NAME ?? existingState.agent_name,
+          `Using existing LiveKit agent name: ${
+            agentEnv.LIVEKIT_AGENT_NAME ?? frontendEnv.AGENT_NAME ?? existingState.agent_name
+          }`,
+          'Agent name'
+        );
+  const bridgeContract = createBridgeInstallationContract({
+    repoRoot: REPO_ROOT,
+    provider: bridgeProvider,
+    workdir,
+    skillName: agentEnv.REPOLINE_SKILL_NAME ?? REPOLINE_SKILL_NAME,
+    ttsPronunciationSkillName:
+      agentEnv.REPOLINE_TTS_PRONUNCIATION_SKILL_NAME ??
+      REPOLINE_TTS_PRONUNCIATION_SKILL_NAME,
+  });
+  const phoneConfig = await configurePhone(
+    ui,
+    project,
+    agentName,
+    existingState.phone ?? null,
+    projectNumbers,
+    options.phonePin
+  );
+
+  bridgeContract.persistRuntimeConfig({
+    agentEnvPath: AGENT_ENV_PATH,
+    frontendEnvPath: FRONTEND_ENV_PATH,
+    statePath: STATE_PATH,
+    project,
+    agentName,
+    existingAgentEnv: agentEnv,
+    existingFrontendEnv: frontendEnv,
+    phone: phoneConfig,
+  });
+
+  note(
+    [
+      `LiveKit project: ${project.name}`,
+      `Coding CLI: ${formatBridgeProvider(bridgeProvider)}`,
+      `Workdir: ${workdir}`,
+      `Agent name: ${agentName}`,
+      `Dispatch rule: ${phoneConfig.dispatchRuleName}`,
+    ].join('\n'),
+    'Phone setup complete'
+  );
+  note(formatPhoneInstructions(phoneConfig), 'Call In');
+  outro('Phone setup complete. Run `bun run live` when you are ready to take calls.');
 }
 
 async function devCommand(): Promise<void> {
@@ -1141,11 +1290,12 @@ async function configurePhone(
   project: LiveKitProject,
   agentName: string,
   existingPhone: PhoneConfig | null,
-  projectNumbers: PhoneNumberRecord[]
+  projectNumbers: PhoneNumberRecord[],
+  preferredPin?: string
 ): Promise<PhoneConfig> {
   const availableNumbers = await ensureProjectPhoneNumbers(ui, project, projectNumbers);
   const phoneNumber = await choosePhoneNumber(ui, availableNumbers, existingPhone?.number ?? null);
-  const pin = await promptPin(ui, existingPhone?.pin ?? null);
+  const pin = preferredPin ?? (await promptPin(ui, existingPhone?.pin ?? null));
   const dispatchRuleName = slugify(`${agentName}-inbound`);
   const existingDispatch = selectDispatchRule(project.name, dispatchRuleName);
 

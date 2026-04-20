@@ -30,13 +30,14 @@ Prerequisites:
 - `bun`
 
 ```bash
-bun run setup
+bun run setup --preset codex-browser
 bun run doctor
 bun run live
 ```
 
 `bun run setup` installs the local RepoLine configuration and dependencies, but it does not start the worker or frontend. It can install missing local tools, run `lk cloud auth`, add a LiveKit project manually, write the local env files, install dependencies, install the RepoLine voice skill into the target repo, and wire phone access. If the project does not have an active LiveKit number yet, setup can search for a US local number and purchase it from the CLI before it creates the dispatch rule.
-For scripted onboarding and smoke tests, setup also accepts `--provider`, `--project`, `--workdir`, `--agent-name`, and `--skip-phone`.
+For scripted onboarding and smoke tests, setup also accepts `--preset`, `--provider`, `--project`, `--workdir`, `--agent-name`, `--pin`, `--skip-phone`, and `--phone-only`.
+`--preset codex-browser` is the boring browser-first path: use Codex, skip phone wiring, and get the local flow working first. After that works, run `bun run setup:phone` to attach a number and dispatch rule without rerunning the full setup.
 `./scripts/bootstrap.sh` is still available if you want RepoLine to install `bun`, `uv`, `lk`, and a supported coding CLI for you, or if you need to repair one missing tool later.
 
 If you are onboarding from scratch, start with `Codex CLI` unless you already know you want a different provider. The current onboarding guide, setup defaults, and provider recommendations live in [docs/ONBOARDING.md](./docs/ONBOARDING.md).

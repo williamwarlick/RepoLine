@@ -9,6 +9,7 @@
   "scripts": {
     "bootstrap": "bash ./scripts/bootstrap.sh",
     "setup": "bun run ./scripts/phone-bridge.ts setup",
+    "setup:phone": "bun run ./scripts/phone-bridge.ts setup --phone-only",
     "dev": "bun run ./scripts/phone-bridge.ts dev",
     "live": "bun run ./scripts/phone-bridge.ts live",
     "agent": "bun run ./scripts/phone-bridge.ts agent",

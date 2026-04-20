@@ -10,7 +10,7 @@ For a new user, keep the first run boring:
 
 - start with `Codex CLI`
 - keep `BRIDGE_ACCESS_POLICY=readonly`
-- run `bun run setup --provider codex --skip-phone` first if the goal is only to verify the browser flow
+- run `bun run setup --preset codex-browser` first if the goal is only to verify the browser flow
 - run `bun run doctor` before wiring phone access
 - add telephony only after the local browser path works
 
@@ -75,10 +75,24 @@ These are the baseline generated defaults unless an existing env file already ov
 ## Recommended Onboarding Flow
 
 1. Install `bun` and one coding CLI. For most new users, choose `codex`.
-2. Run `bun run setup --provider codex --skip-phone`.
+2. Run `bun run setup --preset codex-browser`.
 3. Run `bun run doctor`.
 4. Run `bun run live` and verify the browser session on `http://127.0.0.1:3000`.
-5. Re-run `bun run setup` without `--skip-phone` only after the local path is confirmed.
+5. Run `bun run setup:phone` only after the local path is confirmed and you want telephony.
 6. Move to `Cursor App` only after the baseline install works if you want the fastest current Cursor-backed runtime path.
 7. Use the browser control bar to change models live for `Cursor Agent` CLI and `Cursor App` sessions.
 8. Keep `Cursor Agent` CLI as the simpler fallback when the app path is unstable or when you need a cleaner fresh-session benchmark path.
+
+## Quick Phone Follow-Up
+
+Once the browser path works, use the fast follow-up path instead of rerunning full setup:
+
+```bash
+bun run setup:phone
+```
+
+That reuses the existing provider, workdir, project, and agent name, then only attaches or updates the LiveKit phone number and dispatch rule. If you want a specific inbound PIN without prompting, use:
+
+```bash
+bun run setup:phone -- --pin 2468
+```
