@@ -65,6 +65,7 @@ class BenchmarkScenario:
     use_repoline_prompt: bool = False
     system_prompt: str | None = None
     resume_between_turns: bool = True
+    fresh_session_strategy: str | None = None
     command: tuple[str, ...] | None = None
     timeout_seconds: int = 60
     latency_archetype: str | None = None
@@ -222,6 +223,7 @@ def _parse_scenario(
         use_repoline_prompt=bool(merged.get("use_repoline_prompt", False)),
         system_prompt=_optional_string(merged, "system_prompt"),
         resume_between_turns=bool(merged.get("resume_between_turns", True)),
+        fresh_session_strategy=_optional_string(merged, "fresh_session_strategy"),
         command=command,
         timeout_seconds=_optional_int(merged, "timeout_seconds", default=60),
         latency_archetype=_optional_string(merged, "latency_archetype"),
@@ -326,6 +328,7 @@ def build_scenario_config(
         provider=scenario.provider,  # type: ignore[arg-type]
         provider_transport=scenario.provider_transport,  # type: ignore[arg-type]
         provider_submit_mode=scenario.provider_submit_mode,
+        fresh_session_strategy=scenario.fresh_session_strategy,
         resume_session_id=resume_session_id,
         system_prompt=system_prompt,
         model=scenario.model,

@@ -17,7 +17,7 @@ For a new user, keep the first run boring:
 That path avoids the main onboarding traps:
 
 - `Claude Code` is currently stale support, not a default recommendation
-- `Cursor App` is experimental and version-sensitive
+- `Cursor App` is the fastest current Cursor-backed runtime path, but it is still version-sensitive and not the boring first-run default
 - `Gemini CLI` is supported, but not the baseline path we want new users to start with
 
 ## What `bun run setup` Writes
@@ -69,7 +69,7 @@ These are the baseline generated defaults unless an existing env file already ov
 | `Codex CLI` | validated support, recommended default | `2026-04-19` | targeted Python and Bun setup/runtime tests; default harness pack at [`benchmarks/latency/planning-latency-core.json`](../benchmarks/latency/planning-latency-core.json) | best current onboarding path |
 | `Cursor Agent` CLI transport | validated support | `2026-04-19` | targeted Python and Bun setup/runtime tests; default harness pack at [`benchmarks/latency/planning-latency-core.json`](../benchmarks/latency/planning-latency-core.json) | supported, but not the default onboarding recommendation |
 | `Gemini CLI` | validated support | `2026-04-19` | targeted Python and Bun setup/runtime tests; default harness pack at [`benchmarks/latency/planning-latency-core.json`](../benchmarks/latency/planning-latency-core.json) | supported coding-agent path with local repo access |
-| `Cursor App` transport | experimental | `2026-04-19` | targeted setup/runtime test coverage | keep out of the default first-run path because it depends on the current Cursor desktop build and a live local app session |
+| `Cursor App` transport | validated runtime support | `2026-04-19` | targeted setup/runtime tests; checked-in validation note at [`docs/CURSOR-APP-VALIDATION-2026-04-19.md`](./CURSOR-APP-VALIDATION-2026-04-19.md) | fastest current Cursor-backed runtime path with `BRIDGE_CURSOR_TRANSPORT=app` and submit mode `auto`; still version-sensitive, but RepoLine can now switch the supported runtime models from the browser control bar |
 | `Claude Code` | stale support | `2026-04-15` | older checked-in benchmark work; no fresh validation in the current cut | keep visible in the matrix, but do not treat it as currently validated |
 
 ## Recommended Onboarding Flow
@@ -79,5 +79,6 @@ These are the baseline generated defaults unless an existing env file already ov
 3. Run `bun run doctor`.
 4. Run `bun run live` and verify the browser session on `http://127.0.0.1:3000`.
 5. Re-run `bun run setup` without `--skip-phone` only after the local path is confirmed.
-6. Move to `Gemini CLI` or `Cursor Agent` only as an explicit comparison or optimization pass.
-7. Treat `Cursor App` as an experiment, not as part of the baseline onboarding story.
+6. Move to `Cursor App` only after the baseline install works if you want the fastest current Cursor-backed runtime path.
+7. Use the browser control bar to change models live for `Cursor Agent` CLI and `Cursor App` sessions.
+8. Keep `Cursor Agent` CLI as the simpler fallback when the app path is unstable or when you need a cleaner fresh-session benchmark path.

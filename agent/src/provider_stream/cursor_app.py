@@ -55,6 +55,7 @@ class CursorAppSubmitter(Protocol):
         prompt: str,
         command_title: str,
         submit_mode: str | None,
+        start_new_composer: bool = False,
     ) -> CursorAppSubmitResult: ...
 
 
@@ -74,12 +75,14 @@ class DefaultCursorAppSubmitter:
         prompt: str,
         command_title: str,
         submit_mode: str | None,
+        start_new_composer: bool = False,
     ) -> CursorAppSubmitResult:
         return await submit_prompt_to_cursor_app(
             workspace_root=workspace_root,
             prompt=prompt,
             command_title=command_title,
             submit_mode=submit_mode,
+            start_new_composer=start_new_composer,
         )
 
 
@@ -100,6 +103,7 @@ def build_cursor_app_submit_command(config: TextStreamConfig) -> list[str]:
             if config.provider_submit_mode
             else []
         ),
+        *(["--new-composer"] if config.fresh_session_strategy == "new_composer" else []),
     ]
 
 
@@ -151,6 +155,10 @@ class CursorAppTransport:
                 prompt=prompt,
                 command_title=DEFAULT_CURSOR_APP_COMMAND_TITLE,
                 submit_mode=config.provider_submit_mode,
+                start_new_composer=(
+                    config.resume_session_id is None
+                    and config.fresh_session_strategy == "new_composer"
+                ),
             )
         except CursorAppSubmitError as exc:
             raise TextStreamError(str(exc)) from exc
@@ -161,6 +169,7 @@ class CursorAppTransport:
             tail.seed_known_bubbles(
                 _seed_bubbles_before_submitted_response(
                     self._bubble_loader(composer_id),
+                    submitted_user_bubble_id=submit_result.user_bubble_id,
                     prompt=prompt,
                 )
             )
@@ -300,8 +309,15 @@ def _tool_artifact_from_bubble(raw: dict[str, Any]) -> UiArtifact | None:
 def _seed_bubbles_before_submitted_response(
     bubbles: list[Any],
     *,
+    submitted_user_bubble_id: str | None = None,
     prompt: str,
 ) -> list[Any]:
+    if submitted_user_bubble_id:
+        for index, bubble in enumerate(bubbles):
+            bubble_id = str(getattr(bubble, "bubble_id", "") or "").strip()
+            if bubble_id == submitted_user_bubble_id:
+                return bubbles[: index + 1]
+
     normalized_prompt = prompt.strip()
     if not normalized_prompt:
         return bubbles

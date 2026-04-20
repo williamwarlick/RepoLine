@@ -13,6 +13,11 @@ LiveKit handles media transport, speech-to-text, text-to-speech, and optional te
 5. LiveKit speaks those chunks back into the room.
 6. The browser UI can also show the message transcript and any RepoLine artifact cards the bridge publishes.
 
+For Cursor-backed sessions, the browser control bar also surfaces runtime model state:
+
+- `Cursor Agent` CLI sessions can change the active model live for subsequent turns
+- `Cursor App` sessions can also switch between the supported Cursor runtime models live by updating Cursor's local composer state
+
 ## What lives where
 
 - LiveKit owns rooms, transport, STT, TTS, and phone ingress.
@@ -36,7 +41,7 @@ Cursor has two distinct conversation stores in practice:
 - headless `cursor-agent --resume` can reuse a session id on the CLI side
 - the Cursor desktop app keeps its own local composer state in Cursor's SQLite storage
 
-RepoLine's experimental Cursor app transport reads and follows the desktop app composer state directly. A headless CLI resume does not write new bubbles back into that local app store.
+RepoLine's version-sensitive Cursor app transport reads and follows the desktop app composer state directly. A headless CLI resume does not write new bubbles back into that local app store.
 
 ## Streaming behavior
 
@@ -45,7 +50,7 @@ Different CLIs expose different output surfaces:
 - Claude Code currently has the best partial-text path, so speech can usually start before the turn fully completes.
 - Codex resumes threads correctly, but local testing in this repo did not surface token deltas on stdout, so speech usually starts from the final assistant message.
 - Cursor Agent can emit full assistant messages before the turn ends, but its stream is still coarser than Claude's delta stream.
-- Cursor App transport can be faster than headless Cursor because it uses the live desktop session, but it depends on the app being open and focused on the target workspace.
+- Cursor App transport can be faster than headless Cursor because it uses the live desktop session, and on the current tested build it is the fastest Cursor-backed runtime path, but it depends on the app being open and focused on the target workspace.
 - Gemini CLI emits simple streaming JSON deltas and tool events, which makes it easy to benchmark and compare against the other provider adapters.
 
 ## User-visible limits

@@ -131,6 +131,16 @@ def read_item_table_json(db_path: Path, key: str) -> dict[str, Any] | None:
     return json.loads(decode_sqlite_value(row[0]))
 
 
+def write_item_table_json(db_path: Path, key: str, payload: dict[str, Any]) -> None:
+    encoded_payload = json.dumps(payload)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "update ItemTable set value = ? where key = ?",
+            (encoded_payload, key),
+        )
+        connection.commit()
+
+
 def find_active_composer_id(
     workspace_root: str | Path,
     *,
@@ -178,6 +188,35 @@ def find_active_composer_id(
     raise CursorAppTapError(
         f"Could not determine an active composer for {workspace_path}."
     )
+
+
+def list_selected_composer_ids(
+    workspace_root: str | Path,
+    *,
+    cursor_support_dir: Path | None = None,
+) -> list[str]:
+    workspace_storage_dir = find_workspace_storage_dir(
+        workspace_root, cursor_support_dir=cursor_support_dir
+    )
+    workspace_db = workspace_storage_dir / "state.vscdb"
+    composer_state = read_item_table_json(workspace_db, "composer.composerData") or {}
+
+    selected_ids: list[str] = []
+    for value in composer_state.get("selectedComposerIds") or []:
+        if not isinstance(value, str):
+            continue
+        normalized_id = value.strip()
+        if normalized_id and normalized_id not in selected_ids:
+            selected_ids.append(normalized_id)
+
+    for value in composer_state.get("lastFocusedComposerIds") or []:
+        if not isinstance(value, str):
+            continue
+        normalized_id = value.strip()
+        if normalized_id and normalized_id not in selected_ids:
+            selected_ids.append(normalized_id)
+
+    return selected_ids
 
 
 def list_workspace_composers(
@@ -282,6 +321,16 @@ def read_cursor_disk_kv_json(db_path: Path, key: str) -> dict[str, Any] | None:
     return json.loads(decode_sqlite_value(row[0]))
 
 
+def write_cursor_disk_kv_json(db_path: Path, key: str, payload: dict[str, Any]) -> None:
+    encoded_payload = json.dumps(payload)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "update cursorDiskKV set value = ? where key = ?",
+            (encoded_payload, key),
+        )
+        connection.commit()
+
+
 def load_composer_data(
     composer_id: str,
     *,
@@ -292,6 +341,152 @@ def load_composer_data(
     if data is None:
         raise CursorAppTapError(f"Could not load composerData for {composer_id}.")
     return data
+
+
+def write_composer_data(
+    composer_id: str,
+    payload: dict[str, Any],
+    *,
+    cursor_support_dir: Path | None = None,
+) -> None:
+    global_db = default_global_state_db(cursor_support_dir)
+    write_cursor_disk_kv_json(global_db, f"composerData:{composer_id}", payload)
+
+
+def build_cursor_model_config(
+    model: str,
+    *,
+    existing_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    base_config = dict(existing_config or {})
+    if model == "composer-2-fast":
+        return {
+            **base_config,
+            "modelName": "composer-2",
+            "maxMode": False,
+            "selectedModels": [
+                {
+                    "modelId": "composer-2",
+                    "parameters": [{"id": "fast", "value": "true"}],
+                }
+            ],
+        }
+    if model == "composer-2":
+        return {
+            **base_config,
+            "modelName": "composer-2",
+            "maxMode": False,
+            "selectedModels": [
+                {
+                    "modelId": "composer-2",
+                    "parameters": [{"id": "fast", "value": "false"}],
+                }
+            ],
+        }
+    raise CursorAppTapError(f"Unsupported Cursor app runtime model: {model}")
+
+
+def _composer_has_history(
+    composer_id: str | None,
+    *,
+    cursor_support_dir: Path | None = None,
+) -> bool:
+    if not composer_id:
+        return False
+    try:
+        return bool(load_bubbles(composer_id, cursor_support_dir=cursor_support_dir))
+    except CursorAppTapError:
+        return False
+
+
+def resolve_runtime_composer_ids(
+    workspace_root: str | Path,
+    *,
+    cursor_support_dir: Path | None = None,
+) -> list[str]:
+    candidate_ids = list_selected_composer_ids(
+        workspace_root, cursor_support_dir=cursor_support_dir
+    )
+    active_composer_id: str | None = None
+    try:
+        active_composer_id = find_active_composer_id(
+            workspace_root, cursor_support_dir=cursor_support_dir
+        )
+    except CursorAppTapError:
+        active_composer_id = None
+
+    if active_composer_id and active_composer_id not in candidate_ids:
+        candidate_ids.append(active_composer_id)
+
+    preferred_ids = [
+        composer_id
+        for composer_id in candidate_ids
+        if _composer_has_history(composer_id, cursor_support_dir=cursor_support_dir)
+    ]
+    if preferred_ids:
+        return preferred_ids
+    if candidate_ids:
+        return candidate_ids
+    if active_composer_id:
+        return [active_composer_id]
+    return []
+
+
+def resolve_runtime_composer_id(
+    workspace_root: str | Path,
+    *,
+    cursor_support_dir: Path | None = None,
+) -> str | None:
+    candidate_ids = resolve_runtime_composer_ids(
+        workspace_root, cursor_support_dir=cursor_support_dir
+    )
+    return candidate_ids[0] if candidate_ids else None
+
+
+def update_cursor_runtime_model(
+    workspace_root: str | Path,
+    *,
+    model: str,
+    cursor_support_dir: Path | None = None,
+) -> list[str]:
+    runtime_composer_ids = resolve_runtime_composer_ids(
+        workspace_root, cursor_support_dir=cursor_support_dir
+    )
+    if not runtime_composer_ids:
+        raise CursorAppTapError("Could not determine a Cursor app composer to update.")
+
+    updated_composer_ids: list[str] = []
+    for composer_id in runtime_composer_ids:
+        composer_data = load_composer_data(
+            composer_id, cursor_support_dir=cursor_support_dir
+        )
+        composer_data["modelConfig"] = build_cursor_model_config(
+            model,
+            existing_config=composer_data.get("modelConfig"),
+        )
+        write_composer_data(
+            composer_id,
+            composer_data,
+            cursor_support_dir=cursor_support_dir,
+        )
+        updated_composer_ids.append(composer_id)
+
+    global_db = default_global_state_db(cursor_support_dir)
+    app_state_key = (
+        "src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl."
+        "persistentStorage.applicationUser"
+    )
+    app_state = read_item_table_json(global_db, app_state_key)
+    if app_state is not None:
+        ai_settings = app_state.setdefault("aiSettings", {})
+        model_config = ai_settings.setdefault("modelConfig", {})
+        model_config["composer"] = build_cursor_model_config(
+            model,
+            existing_config=model_config.get("composer"),
+        )
+        write_item_table_json(global_db, app_state_key, app_state)
+
+    return updated_composer_ids
 
 
 def load_bubble_data(

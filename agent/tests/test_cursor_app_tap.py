@@ -5,10 +5,15 @@ import sqlite3
 
 from cursor_app_tap import (
     CursorComposerTail,
+    build_cursor_model_config,
     find_active_composer_id,
     list_workspace_composers,
     load_bubbles,
+    load_composer_data,
+    read_item_table_json,
+    resolve_runtime_composer_id,
     search_workspace_conversations,
+    update_cursor_runtime_model,
 )
 
 
@@ -366,3 +371,117 @@ def test_search_workspace_conversations_finds_matching_bubbles(tmp_path) -> None
     assert len(hits) == 1
     assert hits[0].composer.composer_id == "composer-123"
     assert [bubble.role for bubble in hits[0].matching_bubbles] == ["user", "assistant"]
+
+
+def test_resolve_runtime_composer_id_prefers_history_backed_selected_composer(
+    tmp_path,
+) -> None:
+    workspace_root = tmp_path / "repo"
+    workspace_root.mkdir()
+    _write_workspace_storage(tmp_path, workspace_root, "composer-123")
+    _write_global_storage(
+        tmp_path,
+        workspace_root=workspace_root,
+        composer_id="composer-123",
+        user_text="Tell me about alpha context",
+        assistant_text="Alpha context explains RepoLine.",
+    )
+
+    workspace_db = (
+        tmp_path
+        / "Library"
+        / "Application Support"
+        / "Cursor"
+        / "User"
+        / "workspaceStorage"
+        / "abc123"
+        / "state.vscdb"
+    )
+    connection = sqlite3.connect(workspace_db)
+    connection.execute(
+        "update ItemTable set value = ? where key = ?",
+        (
+            json.dumps(
+                {
+                    "selectedComposerIds": ["empty-1", "composer-123"],
+                    "lastFocusedComposerIds": ["empty-1", "composer-123"],
+                }
+            ),
+            "composer.composerData",
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    composer_id = resolve_runtime_composer_id(
+        workspace_root,
+        cursor_support_dir=tmp_path / "Library" / "Application Support" / "Cursor",
+    )
+
+    assert composer_id == "composer-123"
+
+
+def test_update_cursor_runtime_model_updates_composer_and_app_state(tmp_path) -> None:
+    workspace_root = tmp_path / "repo"
+    workspace_root.mkdir()
+    _write_workspace_storage(tmp_path, workspace_root, "composer-123")
+    _write_global_storage(
+        tmp_path,
+        workspace_root=workspace_root,
+        composer_id="composer-123",
+        user_text="Tell me about alpha context",
+        assistant_text="Alpha context explains RepoLine.",
+    )
+
+    global_db = (
+        tmp_path
+        / "Library"
+        / "Application Support"
+        / "Cursor"
+        / "User"
+        / "globalStorage"
+        / "state.vscdb"
+    )
+    app_state_key = (
+        "src.vs.platform.reactivestorage.browser.reactiveStorageServiceImpl."
+        "persistentStorage.applicationUser"
+    )
+    connection = sqlite3.connect(global_db)
+    connection.execute(
+        "insert into ItemTable(key, value) values (?, ?)",
+        (
+            app_state_key,
+            json.dumps(
+                {
+                    "aiSettings": {
+                        "modelConfig": {
+                            "composer": build_cursor_model_config("composer-2")
+                        }
+                    }
+                }
+            ),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    updated_ids = update_cursor_runtime_model(
+        workspace_root,
+        model="composer-2-fast",
+        cursor_support_dir=tmp_path / "Library" / "Application Support" / "Cursor",
+    )
+
+    composer_data = load_composer_data(
+        "composer-123",
+        cursor_support_dir=tmp_path / "Library" / "Application Support" / "Cursor",
+    )
+    app_state = read_item_table_json(global_db, app_state_key)
+
+    assert updated_ids == ["composer-123"]
+    assert composer_data["modelConfig"] == build_cursor_model_config(
+        "composer-2-fast"
+    )
+    assert app_state is not None
+    assert app_state["aiSettings"]["modelConfig"]["composer"] == build_cursor_model_config(
+        "composer-2-fast"
+    )

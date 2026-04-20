@@ -12,6 +12,13 @@ from typing import Protocol
 from livekit import rtc
 
 from bridge_config import BridgeConfig
+from cursor_app_tap import (
+    CursorAppTapError,
+    build_cursor_model_config,
+    load_composer_data,
+    resolve_runtime_composer_id,
+    update_cursor_runtime_model,
+)
 from model_stream import (
     TextStreamConfig,
     TextStreamError,
@@ -54,6 +61,35 @@ class TurnSession(Protocol):
 StreamEventsFactory = Callable[[TextStreamConfig], AsyncIterator[TextStreamEvent]]
 SleepFn = Callable[[float], Awaitable[None]]
 MonotonicFn = Callable[[], float]
+CURSOR_RUNTIME_MODEL_OPTIONS = ("composer-2-fast", "composer-2")
+
+
+@dataclass(frozen=True, slots=True)
+class TurnRuntimeState:
+    provider: str
+    provider_transport: str | None
+    provider_submit_mode: str | None
+    configured_model: str | None
+    active_model: str | None
+    thinking_level: str | None
+    access_policy: str
+    can_update_model: bool
+    model_options: tuple[str, ...]
+    model_update_note: str | None = None
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "provider": self.provider,
+            "providerTransport": self.provider_transport,
+            "providerSubmitMode": self.provider_submit_mode,
+            "configuredModel": self.configured_model,
+            "activeModel": self.active_model,
+            "thinkingLevel": self.thinking_level,
+            "accessPolicy": self.access_policy,
+            "canUpdateModel": self.can_update_model,
+            "modelOptions": list(self.model_options),
+            "modelUpdateNote": self.model_update_note,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +160,7 @@ class TurnCoordinator:
         self._pending_last_transcript_at = 0.0
         self._last_completed_stream_session_id: str | None = None
         self._turn_lock = asyncio.Lock()
+        self._runtime_model_override = config.model
 
     def on_user_input_transcribed(self, transcript: str, *, is_final: bool) -> None:
         text = transcript.strip()
@@ -191,6 +228,63 @@ class TurnCoordinator:
         await self._stop_pending_turn()
         await self._stop_active_turn()
 
+    def runtime_state(self) -> TurnRuntimeState:
+        active_model = self._resolve_active_model()
+        can_update_model = self._config.provider == "cursor"
+        note = None
+        if self._config.provider == "cursor" and self._config.provider_transport == "app":
+            note = "Cursor App updates the model in Cursor's local runtime state."
+        return TurnRuntimeState(
+            provider=self._config.provider,
+            provider_transport=self._config.provider_transport,
+            provider_submit_mode=self._config.provider_submit_mode,
+            configured_model=self._config.model,
+            active_model=active_model,
+            thinking_level=self._config.thinking_level,
+            access_policy=self._config.access_policy,
+            can_update_model=can_update_model,
+            model_options=CURSOR_RUNTIME_MODEL_OPTIONS
+            if self._config.provider == "cursor"
+            else (),
+            model_update_note=note,
+        )
+
+    def set_runtime_model(self, model: str | None) -> TurnRuntimeState:
+        if self._config.provider != "cursor":
+            raise ValueError("Live model switching is only supported for Cursor sessions.")
+
+        normalized_model = (model or "").strip() or None
+        if normalized_model and normalized_model not in CURSOR_RUNTIME_MODEL_OPTIONS:
+            raise ValueError(f"Unsupported Cursor runtime model: {normalized_model}")
+
+        if self._config.provider_transport == "app":
+            if not normalized_model:
+                raise ValueError("Cursor App requires an explicit runtime model.")
+            try:
+                update_cursor_runtime_model(
+                    self._config.working_directory,
+                    model=normalized_model,
+                )
+            except CursorAppTapError as exc:
+                raise ValueError(str(exc)) from exc
+            self._runtime_model_override = normalized_model
+            self._telemetry.emit(
+                "runtime_model_updated",
+                provider=self._config.provider,
+                provider_transport=self._config.provider_transport,
+                model=normalized_model,
+            )
+            return self.runtime_state()
+
+        self._runtime_model_override = normalized_model
+        self._telemetry.emit(
+            "runtime_model_updated",
+            provider=self._config.provider,
+            provider_transport=self._config.provider_transport,
+            model=normalized_model,
+        )
+        return self.runtime_state()
+
     async def _stop_active_turn(self) -> None:
         await self._stop_thinking_sound()
         if self._active_speech is not None and not self._active_speech.done():
@@ -239,7 +333,7 @@ class TurnCoordinator:
             session_id=stream_session_id,
             resume_session_id=self._last_completed_stream_session_id,
             system_prompt=self._config.system_prompt,
-            model=self._config.model,
+            model=self._runtime_model_override,
             thinking_level=self._config.thinking_level,
             working_directory=self._config.working_directory,
             chunk_chars=self._config.chunk_chars,
@@ -481,6 +575,33 @@ class TurnCoordinator:
             )
             if self._active_speech is speech_handle:
                 self._active_speech = None
+
+    def _resolve_active_model(self) -> str | None:
+        if self._config.provider == "cursor" and self._config.provider_transport == "app":
+            return self._resolve_cursor_app_model()
+        return self._runtime_model_override
+
+    def _resolve_cursor_app_model(self) -> str | None:
+        try:
+            composer_id = resolve_runtime_composer_id(self._config.working_directory)
+            if not composer_id:
+                return self._runtime_model_override
+            composer_data = load_composer_data(composer_id)
+        except CursorAppTapError:
+            return self._runtime_model_override
+
+        model_config = composer_data.get("modelConfig")
+        if not isinstance(model_config, dict):
+            return self._runtime_model_override
+        for model in CURSOR_RUNTIME_MODEL_OPTIONS:
+            if model_config == build_cursor_model_config(
+                model,
+                existing_config=model_config,
+            ):
+                return model
+
+        model_name = str(model_config.get("modelName") or "").strip() or None
+        return model_name or self._runtime_model_override
 
     def _start_thinking_sound(
         self,

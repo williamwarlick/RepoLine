@@ -5,19 +5,29 @@ import { Track } from 'livekit-client';
 import { Loader, MessageSquareTextIcon, SendHorizontal } from 'lucide-react';
 import { type MotionProps, motion } from 'motion/react';
 import { type ComponentProps, useEffect, useRef, useState } from 'react';
+import { toast as sonnerToast } from 'sonner';
 import { AgentDisconnectButton } from '@/components/agents-ui/agent-disconnect-button';
 import { AgentTrackControl } from '@/components/agents-ui/agent-track-control';
 import {
   AgentTrackToggle,
   agentTrackToggleVariants,
 } from '@/components/agents-ui/agent-track-toggle';
+import { useVoiceSessionController } from '@/components/app/voice-session-controller';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Toggle } from '@/components/ui/toggle';
 import {
   type UseInputControlsProps,
   useInputControls,
   usePublishPermissions,
 } from '@/hooks/agents-ui/use-agent-control-bar';
+import { formatRuntimeModelLabel } from '@/lib/repoline-session-state';
 import { cn } from '@/lib/shadcn/utils';
 
 const LK_TOGGLE_VARIANT_1 = [
@@ -252,8 +262,11 @@ export function AgentControlBar({
   ...props
 }: AgentControlBarProps & ComponentProps<'div'>) {
   const { send } = useChat();
+  const { runtimeState, latestControlResult, isUpdatingRuntimeModel, setRuntimeModel } =
+    useVoiceSessionController();
   const publishPermissions = usePublishPermissions();
   const [isChatOpenUncontrolled, setIsChatOpenUncontrolled] = useState(isChatOpen);
+  const lastControlResultIdRef = useRef<string | null>(null);
   const {
     microphoneTrack,
     cameraToggle,
@@ -269,6 +282,20 @@ export function AgentControlBar({
     await send(message);
   };
 
+  useEffect(() => {
+    if (!latestControlResult || latestControlResult.id === lastControlResultIdRef.current) {
+      return;
+    }
+
+    lastControlResultIdRef.current = latestControlResult.id;
+    if (latestControlResult.ok) {
+      sonnerToast.success(latestControlResult.message);
+      return;
+    }
+
+    sonnerToast.error(latestControlResult.message);
+  }, [latestControlResult]);
+
   const visibleControls = {
     leave: controls?.leave ?? true,
     microphone: controls?.microphone ?? publishPermissions.microphone,
@@ -278,6 +305,12 @@ export function AgentControlBar({
   };
 
   const isEmpty = Object.values(visibleControls).every((value) => !value);
+  const isCursorRuntime = runtimeState?.provider === 'cursor';
+  const currentRuntimeModel =
+    runtimeState?.activeModel ?? runtimeState?.configuredModel ?? undefined;
+  const runtimeModelOptions = Array.from(
+    new Set([currentRuntimeModel, ...(runtimeState?.modelOptions ?? [])].filter(Boolean))
+  ) as string[];
 
   if (isEmpty) {
     console.warn('AgentControlBar: `visibleControls` contains only false values.');
@@ -294,6 +327,55 @@ export function AgentControlBar({
       )}
       {...props}
     >
+      {isCursorRuntime && (
+        <div className='border-input/50 mb-3 flex flex-col gap-2 border-b pb-3 md:flex-row md:items-center md:justify-between'>
+          <div className='flex min-w-0 flex-col gap-1'>
+            <div className='text-muted-foreground text-[11px] font-medium tracking-wide uppercase'>
+              Cursor model
+            </div>
+            {runtimeState?.modelUpdateNote && (
+              <div className='text-muted-foreground text-xs'>{runtimeState.modelUpdateNote}</div>
+            )}
+          </div>
+
+          {runtimeState?.canUpdateModel ? (
+            <div className='flex items-center gap-2'>
+              <Select
+                value={currentRuntimeModel}
+                disabled={isUpdatingRuntimeModel}
+                onValueChange={(value) => {
+                  void setRuntimeModel(value).catch((error) => {
+                    console.error(error);
+                    sonnerToast.error('Could not update the runtime model.');
+                  });
+                }}
+              >
+                <SelectTrigger
+                  size='sm'
+                  className='w-[196px] rounded-full font-mono text-xs capitalize'
+                >
+                  <SelectValue placeholder='Select a model' />
+                </SelectTrigger>
+                <SelectContent>
+                  {runtimeModelOptions.map((model) => (
+                    <SelectItem key={model} value={model} className='font-mono text-xs capitalize'>
+                      {formatRuntimeModelLabel(model)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {isUpdatingRuntimeModel && (
+                <Loader className='text-muted-foreground size-4 animate-spin' />
+              )}
+            </div>
+          ) : (
+            <div className='bg-accent text-accent-foreground rounded-full px-3 py-1.5 font-mono text-xs capitalize'>
+              {formatRuntimeModelLabel(currentRuntimeModel)}
+            </div>
+          )}
+        </div>
+      )}
+
       <motion.div
         {...MOTION_PROPS}
         inert={!(isChatOpen || isChatOpenUncontrolled)}

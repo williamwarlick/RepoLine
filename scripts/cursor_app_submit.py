@@ -47,6 +47,11 @@ async def _main() -> int:
             "bridge-submit, or active-input."
         ),
     )
+    parser.add_argument(
+        "--new-composer",
+        action="store_true",
+        help="Create a fresh composer before submitting the prompt.",
+    )
     args = parser.parse_args()
 
     try:
@@ -55,6 +60,7 @@ async def _main() -> int:
             prompt=args.prompt,
             command_title=args.command_title,
             submit_mode=args.submit_mode,
+            start_new_composer=args.new_composer,
         )
     except CursorAppSubmitError as exc:
         print(f"error: {exc}", file=sys.stderr)

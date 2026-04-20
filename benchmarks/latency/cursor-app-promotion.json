@@ -1,0 +1,138 @@
+{
+  "defaults": {
+    "provider": "cursor",
+    "working_directory": ".",
+    "model": "composer-2-fast",
+    "thinking_level": "low",
+    "access_policy": "readonly",
+    "chunk_chars": 80,
+    "use_repoline_prompt": true,
+    "repeats": 3,
+    "timeout_seconds": 45,
+    "report_group": "cursor-app-promotion"
+  },
+  "scenarios": [
+    {
+      "name": "cursor-app-auto-hello",
+      "kind": "provider_stream",
+      "provider_transport": "app",
+      "provider_submit_mode": "auto",
+      "fresh_session_strategy": "new_composer",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "cursor-app-auto-summary",
+      "kind": "provider_stream",
+      "provider_transport": "app",
+      "provider_submit_mode": "auto",
+      "fresh_session_strategy": "new_composer",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "cursor-app-auto-lookup",
+      "kind": "provider_stream",
+      "provider_transport": "app",
+      "provider_submit_mode": "auto",
+      "fresh_session_strategy": "new_composer",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "cursor-app-auto-investigation",
+      "kind": "provider_stream",
+      "provider_transport": "app",
+      "provider_submit_mode": "auto",
+      "fresh_session_strategy": "new_composer",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "experimental-path-1",
+      "prompt": "Which provider path in RepoLine is explicitly experimental right now? Reply with one short sentence."
+    },
+    {
+      "name": "cursor-app-auto-warm-sequence",
+      "kind": "provider_stream",
+      "provider_transport": "app",
+      "provider_submit_mode": "auto",
+      "fresh_session_strategy": "new_composer",
+      "latency_archetype": "planning-question",
+      "repeats": 2,
+      "turns": [
+        {
+          "label": "turn-1",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-2",
+          "prompt_id": "harness-path-1",
+          "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+        },
+        {
+          "label": "turn-3",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    },
+    {
+      "name": "cursor-cli-hello",
+      "kind": "provider_stream",
+      "provider_transport": "cli",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "cursor-cli-summary",
+      "kind": "provider_stream",
+      "provider_transport": "cli",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "cursor-cli-lookup",
+      "kind": "provider_stream",
+      "provider_transport": "cli",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "cursor-cli-investigation",
+      "kind": "provider_stream",
+      "provider_transport": "cli",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "experimental-path-1",
+      "prompt": "Which provider path in RepoLine is explicitly experimental right now? Reply with one short sentence."
+    },
+    {
+      "name": "cursor-cli-warm-sequence",
+      "kind": "provider_stream",
+      "provider_transport": "cli",
+      "latency_archetype": "planning-question",
+      "repeats": 2,
+      "turns": [
+        {
+          "label": "turn-1",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-2",
+          "prompt_id": "harness-path-1",
+          "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+        },
+        {
+          "label": "turn-3",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    }
+  ]
+}

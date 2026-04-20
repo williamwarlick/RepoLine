@@ -12,6 +12,7 @@ from turn_coordinator import (
     SleepFn,
     TurnCoordinator,
     TurnCoordinatorConfig,
+    TurnRuntimeState,
     TurnSession,
 )
 
@@ -98,3 +99,9 @@ class TurnOrchestrator:
 
     async def shutdown(self) -> None:
         await self._coordinator.shutdown()
+
+    def runtime_state(self) -> TurnRuntimeState:
+        return self._coordinator.runtime_state()
+
+    def set_runtime_model(self, model: str | None) -> TurnRuntimeState:
+        return self._coordinator.set_runtime_model(model)

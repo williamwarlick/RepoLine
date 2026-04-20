@@ -36,7 +36,7 @@ FALLBACK_PASTE_DELAY_SECONDS = 0.55
 FALLBACK_SUBMIT_DELAY_SECONDS = 0.15
 WORKSPACE_REFocus_DELAY_SECONDS = 0.75
 FAST_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 0.9
-FALLBACK_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 1.8
+FALLBACK_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 3.0
 SUBMIT_VERIFICATION_POLL_INTERVAL_SECONDS = 0.05
 BRIDGE_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 1.35
 BRIDGE_COMPOSER_SCAN_STEPS = 6
@@ -47,6 +47,7 @@ BRIDGE_SUBMIT_METHODS: tuple[str, ...] = ()
 @dataclass(frozen=True, slots=True)
 class CursorAppSubmitResult:
     composer_id: str
+    user_bubble_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,38 +214,45 @@ async def submit_prompt_to_cursor_app(
     prompt: str,
     command_title: str = DEFAULT_CURSOR_APP_COMMAND_TITLE,
     submit_mode: str | None = DEFAULT_CURSOR_APP_SUBMIT_MODE,
+    start_new_composer: bool = False,
 ) -> CursorAppSubmitResult:
     workspace_path = str(Path(workspace_root).expanduser().resolve())
     bridge_status = await ensure_cursor_app_bridge(workspace_path)
     composer_id = await _ensure_selected_composer_id(
         workspace_path,
         bridge_status=bridge_status,
+        prefer_new_composer=start_new_composer,
     )
+    if start_new_composer and not composer_id:
+        raise CursorAppSubmitError(
+            "Cursor app did not switch to a fresh composer for this benchmark turn."
+        )
     resolved_submit_mode = _normalize_submit_mode(submit_mode)
 
-    if resolved_submit_mode in {
-        DEFAULT_CURSOR_APP_SUBMIT_MODE,
-        CURSOR_APP_SUBMIT_MODE_BRIDGE_COMPOSER_HANDLE,
-        CURSOR_APP_SUBMIT_MODE_BRIDGE_SUBMIT,
-    }:
-        bridge_method = _bridge_method_for_submit_mode(resolved_submit_mode)
-        bridge_submit_result = await _try_bridge_submit(
-            workspace_root=workspace_path,
-            prompt=prompt,
-            composer_id=composer_id,
-            method=bridge_method,
-        )
-        if bridge_submit_result is not None:
-            return bridge_submit_result
-        if resolved_submit_mode != DEFAULT_CURSOR_APP_SUBMIT_MODE:
-            raise CursorAppSubmitError(
-                f"Cursor app did not accept the prompt via {resolved_submit_mode}."
+    for attempt_mode in _submit_mode_attempts_for_bridge_status(
+        resolved_submit_mode,
+        bridge_status=bridge_status,
+    ):
+        if attempt_mode in {
+            CURSOR_APP_SUBMIT_MODE_BRIDGE_COMPOSER_HANDLE,
+            CURSOR_APP_SUBMIT_MODE_BRIDGE_SUBMIT,
+        }:
+            bridge_method = _bridge_method_for_submit_mode(attempt_mode)
+            bridge_submit_result = await _try_bridge_submit(
+                workspace_root=workspace_path,
+                prompt=prompt,
+                composer_id=composer_id,
+                method=bridge_method,
             )
+            if bridge_submit_result is not None:
+                return bridge_submit_result
 
-    if resolved_submit_mode in {
-        DEFAULT_CURSOR_APP_SUBMIT_MODE,
-        CURSOR_APP_SUBMIT_MODE_ACTIVE_INPUT,
-    }:
+            if resolved_submit_mode != DEFAULT_CURSOR_APP_SUBMIT_MODE:
+                raise CursorAppSubmitError(
+                    f"Cursor app did not accept the prompt via {attempt_mode}."
+                )
+            continue
+
         active_submit_result = await _try_bridge_active_submit(
             workspace_root=workspace_path,
             prompt=prompt,
@@ -282,6 +290,35 @@ def _bridge_method_for_submit_mode(submit_mode: str) -> str:
     if submit_mode == CURSOR_APP_SUBMIT_MODE_BRIDGE_SUBMIT:
         return "submit"
     return "submitViaComposerHandle"
+
+
+def _submit_mode_attempts_for_bridge_status(
+    submit_mode: str,
+    *,
+    bridge_status: dict[str, object] | None,
+) -> tuple[str, ...]:
+    if submit_mode != DEFAULT_CURSOR_APP_SUBMIT_MODE:
+        return (submit_mode,)
+
+    if _bridge_handle_submit_available(bridge_status):
+        return (
+            CURSOR_APP_SUBMIT_MODE_BRIDGE_COMPOSER_HANDLE,
+            CURSOR_APP_SUBMIT_MODE_ACTIVE_INPUT,
+        )
+
+    return (CURSOR_APP_SUBMIT_MODE_ACTIVE_INPUT,)
+
+
+def _bridge_handle_submit_available(bridge_status: dict[str, object] | None) -> bool:
+    if not isinstance(bridge_status, dict):
+        return False
+
+    handle_probe = bridge_status.get("handleProbe")
+    if not isinstance(handle_probe, dict):
+        return False
+
+    has_submit_message = handle_probe.get("hasSubmitMessage")
+    return bool(has_submit_message)
 
 
 async def _run_submit_osascript(
@@ -468,21 +505,36 @@ async def _try_bridge_active_submit(
         active_composer_id=_safe_find_active_composer_id(workspace_root),
         fallback_composer_id=composer_id,
     )
-    if not active_composer_ids:
+    resolved_composer_id = _preferred_candidate_submit_composer_id(active_composer_ids)
+    if not resolved_composer_id:
         return None
 
-    return CursorAppSubmitResult(composer_id=active_composer_ids[0])
+    return CursorAppSubmitResult(composer_id=resolved_composer_id)
 
 
 async def _ensure_selected_composer_id(
     workspace_root: str,
     *,
     bridge_status: dict[str, object] | None = None,
+    prefer_new_composer: bool = False,
 ) -> str | None:
-    current_bridge_status = bridge_status if bridge_status is not None else await ensure_cursor_app_bridge(workspace_root)
-    selected_composer_id = _bridge_selected_composer_id(current_bridge_status)
-    if selected_composer_id:
-        return selected_composer_id
+    current_bridge_status = (
+        bridge_status
+        if bridge_status is not None
+        else await ensure_cursor_app_bridge(workspace_root)
+    )
+    initial_candidate_ids = _candidate_submit_composer_ids(
+        bridge_status=current_bridge_status,
+        active_composer_id=_safe_find_active_composer_id(workspace_root),
+        fallback_composer_id=None,
+    )
+    previous_composer_ids = set(initial_candidate_ids)
+    if not prefer_new_composer:
+        selected_composer_id = _preferred_candidate_submit_composer_id(
+            initial_candidate_ids
+        )
+        if selected_composer_id:
+            return selected_composer_id
 
     try:
         await request_cursor_app_bridge(
@@ -500,11 +552,23 @@ async def _ensure_selected_composer_id(
     while asyncio.get_running_loop().time() < deadline:
         current_bridge_status = await ensure_cursor_app_bridge(workspace_root)
         selected_composer_id = _bridge_selected_composer_id(current_bridge_status)
-        if selected_composer_id:
+        if selected_composer_id and (
+            not prefer_new_composer or selected_composer_id not in previous_composer_ids
+        ):
             return selected_composer_id
+        active_composer_id = _safe_find_active_composer_id(workspace_root)
+        if active_composer_id and (
+            not prefer_new_composer or active_composer_id not in previous_composer_ids
+        ):
+            return active_composer_id
         await asyncio.sleep(SUBMIT_VERIFICATION_POLL_INTERVAL_SECONDS)
 
-    return _safe_find_active_composer_id(workspace_root)
+    fallback_composer_id = _safe_find_active_composer_id(workspace_root)
+    if fallback_composer_id and (
+        not prefer_new_composer or fallback_composer_id not in previous_composer_ids
+    ):
+        return fallback_composer_id
+    return None if prefer_new_composer else fallback_composer_id
 
 
 async def _run_active_input_osascript(
@@ -584,7 +648,10 @@ async def _wait_for_submitted_prompt(
                 and baseline_marker.bubble_id == latest_user_marker.bubble_id
             ):
                 continue
-            return CursorAppSubmitResult(composer_id=composer_id)
+            return CursorAppSubmitResult(
+                composer_id=composer_id,
+                user_bubble_id=latest_user_marker.bubble_id,
+            )
 
         await asyncio.sleep(SUBMIT_VERIFICATION_POLL_INTERVAL_SECONDS)
 
@@ -688,6 +755,15 @@ def _candidate_submit_composer_ids(
         if composer_id and composer_id not in candidate_ids:
             candidate_ids.append(composer_id)
     return candidate_ids
+
+
+def _preferred_candidate_submit_composer_id(
+    candidate_ids: list[str],
+) -> str | None:
+    for composer_id in candidate_ids:
+        if _composer_has_history(composer_id):
+            return composer_id
+    return candidate_ids[0] if candidate_ids else None
 
 
 def _composer_has_history(composer_id: str | None) -> bool:

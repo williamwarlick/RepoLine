@@ -11,10 +11,11 @@
   },
   "scenarios": [
     {
-      "name": "cursor-app-bridge-handle",
+      "name": "cursor-app-auto",
       "kind": "provider_stream",
       "provider_transport": "app",
-      "provider_submit_mode": "bridge-composer-handle",
+      "provider_submit_mode": "auto",
+      "fresh_session_strategy": "new_composer",
       "turns": [
         {
           "label": "turn-1",
@@ -31,6 +32,7 @@
       "kind": "provider_stream",
       "provider_transport": "app",
       "provider_submit_mode": "active-input",
+      "fresh_session_strategy": "new_composer",
       "turns": [
         {
           "label": "turn-1",

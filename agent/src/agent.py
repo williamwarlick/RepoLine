@@ -28,6 +28,8 @@ from turn_orchestrator import TurnInput, TurnOrchestrator, TurnOrchestratorConfi
 
 logger = logging.getLogger("repoline-bridge")
 REPOLINE_UI_ARTIFACT_TOPIC = "repoline.ui.artifact"
+REPOLINE_CONTROL_TOPIC = "repoline.control"
+REPOLINE_SESSION_STATE_TOPIC = "repoline.session.state"
 LIVEKIT_CHAT_TOPIC = "lk.chat"
 LIVEKIT_LEGACY_CHAT_TOPIC = "lk-chat-topic"
 
@@ -262,6 +264,114 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
             )
         )
 
+    async def publish_runtime_state(
+        *,
+        request_id: str | None = None,
+    ) -> None:
+        payload: dict[str, object] = {
+            "type": "session_state",
+            "state": orchestrator.runtime_state().to_payload(),
+        }
+        if request_id:
+            payload["requestId"] = request_id
+
+        await session.room_io.room.local_participant.send_text(
+            json.dumps(payload),
+            topic=REPOLINE_SESSION_STATE_TOPIC,
+        )
+
+    async def publish_control_result(
+        *,
+        action: str,
+        ok: bool,
+        message: str,
+        request_id: str | None = None,
+    ) -> None:
+        payload: dict[str, object] = {
+            "type": "control_result",
+            "action": action,
+            "ok": ok,
+            "message": message,
+            "state": orchestrator.runtime_state().to_payload(),
+        }
+        if request_id:
+            payload["requestId"] = request_id
+
+        await session.room_io.room.local_participant.send_text(
+            json.dumps(payload),
+            topic=REPOLINE_SESSION_STATE_TOPIC,
+        )
+
+    async def handle_control_text_stream(reader, participant_identity: str) -> None:
+        if participant_identity == ctx.room.local_participant.identity:
+            return
+
+        try:
+            text = await reader.read_all()
+        except Exception:
+            logger.exception("failed to read incoming control text stream")
+            return
+
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            logger.warning("ignoring invalid control payload: %s", text)
+            return
+
+        request_id = payload.get("requestId")
+        if not isinstance(request_id, str):
+            request_id = None
+
+        control_type = str(payload.get("type") or "").strip()
+        telemetry.emit(
+            "runtime_control_received",
+            participant_identity=participant_identity,
+            control_type=control_type,
+            request_id=request_id,
+            payload=payload,
+        )
+
+        if control_type == "request_session_state":
+            await publish_runtime_state(request_id=request_id)
+            return
+
+        if control_type != "set_model":
+            await publish_control_result(
+                action=control_type or "unknown",
+                ok=False,
+                message="Unsupported runtime control.",
+                request_id=request_id,
+            )
+            return
+
+        requested_model = payload.get("model")
+        if requested_model is not None and not isinstance(requested_model, str):
+            await publish_control_result(
+                action="set_model",
+                ok=False,
+                message="Model must be a string.",
+                request_id=request_id,
+            )
+            return
+
+        try:
+            state = orchestrator.set_runtime_model(requested_model)
+        except ValueError as exc:
+            await publish_control_result(
+                action="set_model",
+                ok=False,
+                message=str(exc),
+                request_id=request_id,
+            )
+            return
+
+        await publish_control_result(
+            action="set_model",
+            ok=True,
+            message=f"Runtime model updated to {state.active_model or 'the default model'}.",
+            request_id=request_id,
+        )
+
     @session.on("agent_state_changed")
     def on_agent_state_changed(event) -> None:
         telemetry.emit(
@@ -336,6 +446,13 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
 
     ctx.room.register_text_stream_handler(LIVEKIT_CHAT_TOPIC, on_chat_text_stream)
 
+    def on_control_text_stream(reader, participant_identity: str) -> None:
+        track_background_task(
+            asyncio.create_task(handle_control_text_stream(reader, participant_identity))
+        )
+
+    ctx.room.register_text_stream_handler(REPOLINE_CONTROL_TOPIC, on_control_text_stream)
+
     @ctx.room.on("data_received")
     def on_data_received(packet) -> None:
         if packet.topic != LIVEKIT_LEGACY_CHAT_TOPIC:
@@ -354,6 +471,7 @@ async def coding_cli_bridge(ctx: JobContext) -> None:
         },
     )
     await ctx.connect()
+    await publish_runtime_state()
 
     greeting = session.say(render_call_greeting(SETTINGS), add_to_chat_ctx=False)
     await greeting.wait_for_playout()

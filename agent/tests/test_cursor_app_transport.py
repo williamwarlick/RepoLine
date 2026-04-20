@@ -12,7 +12,7 @@ from provider_stream.cursor_app import (
 
 class FakeSubmitter:
     def __init__(self) -> None:
-        self.calls: list[dict[str, str]] = []
+        self.calls: list[dict[str, str | bool | None]] = []
         self.result = CursorAppSubmitResult(composer_id="composer-123")
 
     async def submit(
@@ -22,6 +22,7 @@ class FakeSubmitter:
         prompt: str,
         command_title: str,
         submit_mode: str | None,
+        start_new_composer: bool = False,
     ) -> CursorAppSubmitResult:
         self.calls.append(
             {
@@ -29,6 +30,7 @@ class FakeSubmitter:
                 "prompt": prompt,
                 "command_title": command_title,
                 "submit_mode": submit_mode,
+                "start_new_composer": start_new_composer,
             }
         )
         return self.result
@@ -146,6 +148,7 @@ async def test_cursor_app_transport_streams_assistant_text_and_completes() -> No
     assert submitter.calls[0]["workspace_root"].endswith("/tmp/demo")
     assert submitter.calls[0]["prompt"].endswith("Say hi")
     assert submitter.calls[0]["submit_mode"] == "bridge-composer-handle"
+    assert submitter.calls[0]["start_new_composer"] is False
 
 
 @pytest.mark.asyncio
@@ -239,6 +242,46 @@ async def test_cursor_app_transport_switches_to_submitted_composer_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cursor_app_transport_requests_new_composer_for_fresh_benchmark_runs() -> None:
+    submitter = FakeSubmitter()
+
+    transport = CursorAppTransport(
+        submitter=submitter,
+        composer_id_resolver=lambda workspace: "composer-123",
+        tail_factory=lambda composer_id: FakeTail(
+            [
+                [],
+                [_assistant_update("Fresh reply.")],
+                [],
+            ]
+        ),
+        composer_loader=lambda composer_id: {
+            "status": "completed",
+            "generatingBubbleIds": [],
+        },
+        poll_interval_seconds=0,
+        settle_delay_seconds=0,
+        response_timeout_seconds=1,
+    )
+
+    events = [
+        event
+        async for event in transport.stream(
+            TextStreamConfig(
+                provider="cursor",
+                provider_transport="app",
+                prompt="Say hi",
+                working_directory="/tmp/demo",
+                fresh_session_strategy="new_composer",
+            )
+        )
+    ]
+
+    assert any(event.type == "done" for event in events)
+    assert submitter.calls[0]["start_new_composer"] is True
+
+
+@pytest.mark.asyncio
 async def test_cursor_app_transport_does_not_replay_existing_history() -> None:
     submitter = FakeSubmitter()
 
@@ -292,4 +335,27 @@ def test_seed_bubbles_before_submitted_response_leaves_post_prompt_assistant_uns
         "older prompt",
         "older reply",
         "submitted prompt",
+    ]
+
+
+def test_seed_bubbles_before_submitted_response_prefers_submitted_user_bubble_id() -> None:
+    bubbles = [
+        _user_bubble("submitted prompt"),
+        _assistant_bubble("older reply"),
+        _user_bubble("submitted prompt"),
+        _assistant_bubble("new reply"),
+    ]
+    bubbles[0].bubble_id = "bubble-old"
+    bubbles[2].bubble_id = "bubble-new"
+
+    seeded = _seed_bubbles_before_submitted_response(
+        bubbles,
+        submitted_user_bubble_id="bubble-new",
+        prompt="submitted prompt",
+    )
+
+    assert [bubble.bubble_id for bubble in seeded] == [
+        "bubble-old",
+        "bubble-older reply",
+        "bubble-new",
     ]

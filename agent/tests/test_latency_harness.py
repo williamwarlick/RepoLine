@@ -34,6 +34,7 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
                         "kind": "provider_stream",
                         "prompt": "What does RepoLine do?",
                         "provider_submit_mode": "bridge-composer-handle",
+                        "fresh_session_strategy": "new_composer",
                         "latency_archetype": "planning-question",
                         "prompt_variant": "current_baseline",
                         "prompt_id": "repo-summary-1",
@@ -59,6 +60,7 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
     assert plan.scenarios[0].working_directory == str(tmp_path.resolve())
     assert plan.scenarios[0].chunk_chars == 120
     assert plan.scenarios[0].provider_submit_mode == "bridge-composer-handle"
+    assert plan.scenarios[0].fresh_session_strategy == "new_composer"
     assert plan.scenarios[0].timeout_seconds == 60
     assert plan.scenarios[0].latency_archetype == "planning-question"
     assert plan.scenarios[0].prompt_variant == "current_baseline"
@@ -90,6 +92,7 @@ alwaysApply: true
         kind="cursor_command",
         provider="cursor",
         provider_submit_mode="bridge-composer-handle",
+        fresh_session_strategy="new_composer",
         working_directory=str(workdir),
         prompt="What does RepoLine do?",
         use_repoline_prompt=True,
@@ -101,6 +104,7 @@ alwaysApply: true
     assert config.system_prompt is not None
     assert config.system_prompt.startswith("Speak plainly.")
     assert config.provider_submit_mode == "bridge-composer-handle"
+    assert config.fresh_session_strategy == "new_composer"
     assert "RepoLine voice session" in config.system_prompt
     assert (
         "Answer directly from the request and obvious repo context when you can."

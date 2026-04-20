@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
+import turn_coordinator as turn_coordinator_module
 from model_stream import TextStreamEvent
 from turn_coordinator import TurnCoordinator, TurnCoordinatorConfig
 
@@ -294,3 +295,126 @@ async def test_turn_coordinator_starts_and_stops_server_thinking_sound_for_phone
     assert session.stream_messages[0].chunks == ["Working on it."]
     assert any(event == "thinking_sound_started" for event, _ in telemetry.events)
     assert any(event == "thinking_sound_stopped" for event, _ in telemetry.events)
+
+
+def test_turn_coordinator_runtime_state_exposes_cursor_cli_model_controls() -> None:
+    coordinator = TurnCoordinator(
+        config=_config(
+            provider="cursor",
+            provider_transport="cli",
+            model="composer-2-fast",
+        ),
+        session=FakeSession(),
+        telemetry=FakeTelemetry(),
+    )
+
+    state = coordinator.runtime_state()
+
+    assert state.provider == "cursor"
+    assert state.provider_transport == "cli"
+    assert state.active_model == "composer-2-fast"
+    assert state.can_update_model is True
+    assert state.model_options == ("composer-2-fast", "composer-2")
+
+
+@pytest.mark.asyncio
+async def test_turn_coordinator_applies_runtime_model_override_to_new_turns() -> None:
+    session = FakeSession()
+    telemetry = FakeTelemetry()
+    seen_models: list[str | None] = []
+
+    async def stream_events(config) -> AsyncIterator[TextStreamEvent]:
+        seen_models.append(config.model)
+        yield TextStreamEvent(type="speech_chunk", text="On it.", session_id="cursor-1")
+        yield TextStreamEvent(type="done", exit_code=0, session_id="cursor-1")
+
+    coordinator = TurnCoordinator(
+        config=_config(
+            provider="cursor",
+            provider_transport="cli",
+            model="composer-2-fast",
+        ),
+        session=session,
+        telemetry=telemetry,
+        stream_events=stream_events,
+    )
+
+    state = coordinator.set_runtime_model("composer-2")
+    await coordinator.submit_text_turn("Summarize the repo", source="chat_text")
+    await asyncio.sleep(0.02)
+    await coordinator.shutdown()
+
+    assert state.active_model == "composer-2"
+    assert seen_models == ["composer-2"]
+
+
+def test_turn_coordinator_updates_runtime_model_for_cursor_app(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    updated: list[tuple[str, str]] = []
+
+    def fake_update_cursor_runtime_model(workspace_root: str, *, model: str) -> list[str]:
+        updated.append((workspace_root, model))
+        return ["composer-123"]
+
+    monkeypatch.setattr(
+        turn_coordinator_module,
+        "update_cursor_runtime_model",
+        fake_update_cursor_runtime_model,
+    )
+
+    coordinator = TurnCoordinator(
+        config=_config(
+            provider="cursor",
+            provider_transport="app",
+            model="composer-2-fast",
+        ),
+        session=FakeSession(),
+        telemetry=FakeTelemetry(),
+    )
+
+    state = coordinator.set_runtime_model("composer-2")
+
+    assert state.active_model == "composer-2"
+    assert updated == [("/tmp/project", "composer-2")]
+
+
+def test_turn_coordinator_runtime_state_uses_preferred_cursor_app_composer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        turn_coordinator_module,
+        "resolve_runtime_composer_id",
+        lambda workspace_root: "composer-live",
+    )
+    monkeypatch.setattr(
+        turn_coordinator_module,
+        "load_composer_data",
+        lambda composer_id: {
+            "modelConfig": {
+                "modelName": "composer-2",
+                "maxMode": False,
+                "selectedModels": [
+                    {
+                        "modelId": "composer-2",
+                        "parameters": [{"id": "fast", "value": "false"}],
+                    }
+                ],
+            }
+        },
+    )
+
+    coordinator = TurnCoordinator(
+        config=_config(
+            provider="cursor",
+            provider_transport="app",
+            model="composer-2-fast",
+        ),
+        session=FakeSession(),
+        telemetry=FakeTelemetry(),
+    )
+
+    state = coordinator.runtime_state()
+
+    assert state.active_model == "composer-2"
+    assert state.can_update_model is True

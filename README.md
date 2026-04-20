@@ -51,7 +51,7 @@ If you are onboarding from scratch, start with `Codex CLI` unless you already kn
 
 - connects browser sessions or phone calls to a local coding CLI workdir
 - supports `claude`, `codex`, `cursor`, and `gemini`
-- supports an experimental, version-sensitive `Cursor App` transport with `BRIDGE_CURSOR_TRANSPORT=app` for faster app-backed Cursor turns
+- supports a version-sensitive `Cursor App` transport with `BRIDGE_CURSOR_TRANSPORT=app`; on the current tested build it is the fastest Cursor-backed runtime path
 - speaks streamed output as soon as the provider gives usable text
 - supports browser chat input alongside voice
 - publishes repo artifacts into the browser transcript when the bridge emits them
@@ -119,7 +119,12 @@ For Cursor specifically, there are still two different runtime paths:
 - `BRIDGE_CURSOR_TRANSPORT=cli`: headless `cursor-agent`
 - `BRIDGE_CURSOR_TRANSPORT=app`: submit into the open Cursor app and read replies from the app's local composer state
 
-The app transport stays experimental because it depends on the current Cursor desktop build and a live local app session.
+The app transport is the current low-latency recommendation for Cursor-backed runtime turns, but it still depends on the current Cursor desktop build and a live local app session. Keep `Codex CLI` as the boring first-run default, and keep `Cursor Agent` CLI as the simpler clean-benchmark fallback.
+
+Cursor runtime model control now works like this:
+
+- `Cursor Agent` CLI sessions can switch between supported models live from the browser control bar
+- `Cursor App` sessions now switch between the supported Cursor runtime models from the browser control bar by updating Cursor's local runtime state
 
 ## License
 

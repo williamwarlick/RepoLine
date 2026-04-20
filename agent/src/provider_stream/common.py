@@ -48,6 +48,7 @@ class TextStreamConfig:
     chunk_chars: int = 140
     access_policy: AccessPolicy = "readonly"
     provider_submit_mode: str | None = None
+    fresh_session_strategy: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
