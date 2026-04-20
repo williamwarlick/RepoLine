@@ -20,6 +20,7 @@ from provider_stream.common import (
     SentenceChunker,
     TextStreamProvider,
     _extract_codex_delta_text,
+    _extract_error_message,
     _extract_incremental_text,
     _extract_text_candidate,
     _string_value,
@@ -45,12 +46,15 @@ class BenchmarkTurnSpec:
     prompt: str
     label: str | None = None
     prompt_id: str | None = None
+    latency_archetype: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkScenario:
     name: str
     kind: ScenarioKind
+    benchmark_family: str | None = None
+    benchmark_revision: str | None = None
     provider: str = "cursor"
     provider_transport: str | None = None
     provider_submit_mode: str | None = None
@@ -78,7 +82,13 @@ class BenchmarkScenario:
             return self.turns
         if self.prompt is None:
             raise ValueError(f"scenario `{self.name}` is missing `prompt` or `turns`")
-        return (BenchmarkTurnSpec(prompt=self.prompt, prompt_id=self.prompt_id),)
+        return (
+            BenchmarkTurnSpec(
+                prompt=self.prompt,
+                prompt_id=self.prompt_id,
+                latency_archetype=self.latency_archetype,
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,14 +97,40 @@ class BenchmarkPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class BenchmarkRunMetadata:
+    run_id: str
+    plan_path: str | None
+    plan_sha256: str | None
+    git_sha: str | None
+    git_sha_short: str | None
+    host_os: str | None
+    host_arch: str | None
+    python_version: str | None
+    started_at_utc: str
+
+
+@dataclass(frozen=True, slots=True)
 class BenchmarkTurnResult:
+    run_id: str | None
+    plan_path: str | None
+    plan_sha256: str | None
+    git_sha: str | None
+    git_sha_short: str | None
+    host_os: str | None
+    host_arch: str | None
+    python_version: str | None
+    run_started_at_utc: str | None
     scenario_name: str
     scenario_kind: ScenarioKind
+    benchmark_family: str | None
+    benchmark_revision: str | None
     provider: str
     provider_transport: str | None
+    provider_submit_mode: str | None
     model: str | None
     thinking_level: str | None
     access_policy: str
+    fresh_session_strategy: str | None
     report_group: str | None
     latency_archetype: str | None
     prompt_variant: str | None
@@ -209,6 +245,8 @@ def _parse_scenario(
     return BenchmarkScenario(
         name=name,
         kind=kind,
+        benchmark_family=_optional_string(merged, "benchmark_family"),
+        benchmark_revision=_optional_string(merged, "benchmark_revision"),
         provider=provider,
         provider_transport=_optional_string(merged, "provider_transport"),
         provider_submit_mode=_optional_string(merged, "provider_submit_mode"),
@@ -255,6 +293,7 @@ def _parse_turns(value: Any) -> tuple[BenchmarkTurnSpec, ...]:
                 prompt=prompt,
                 label=_optional_string(entry, "label"),
                 prompt_id=_optional_string(entry, "prompt_id"),
+                latency_archetype=_optional_string(entry, "latency_archetype"),
             )
         )
     return tuple(turns)
@@ -342,7 +381,10 @@ def build_scenario_config(
 async def measure_provider_stream_turn(
     config: TextStreamConfig,
     *,
+    run_metadata: BenchmarkRunMetadata | None = None,
     scenario_name: str,
+    benchmark_family: str | None = None,
+    benchmark_revision: str | None = None,
     repeat_index: int,
     turn_index: int,
     turn_label: str | None = None,
@@ -421,13 +463,26 @@ async def measure_provider_stream_turn(
         response_text=response_text,
     )
     return BenchmarkTurnResult(
+        run_id=run_metadata.run_id if run_metadata else None,
+        plan_path=run_metadata.plan_path if run_metadata else None,
+        plan_sha256=run_metadata.plan_sha256 if run_metadata else None,
+        git_sha=run_metadata.git_sha if run_metadata else None,
+        git_sha_short=run_metadata.git_sha_short if run_metadata else None,
+        host_os=run_metadata.host_os if run_metadata else None,
+        host_arch=run_metadata.host_arch if run_metadata else None,
+        python_version=run_metadata.python_version if run_metadata else None,
+        run_started_at_utc=(run_metadata.started_at_utc if run_metadata else None),
         scenario_name=scenario_name,
         scenario_kind="provider_stream",
+        benchmark_family=benchmark_family,
+        benchmark_revision=benchmark_revision,
         provider=config.provider,
         provider_transport=config.provider_transport,
+        provider_submit_mode=config.provider_submit_mode,
         model=config.model,
         thinking_level=config.thinking_level,
         access_policy=config.access_policy,
+        fresh_session_strategy=config.fresh_session_strategy,
         report_group=report_group,
         latency_archetype=latency_archetype,
         prompt_variant=prompt_variant,
@@ -617,7 +672,10 @@ class ProviderCommandAccumulator:
             status = _string_value(event.get("status")) or "success"
             if status != "success":
                 self.error_message = (
-                    self.error_message or f"Gemini CLI failed with status {status}."
+                    self.error_message
+                    or _extract_error_message(event.get("error"))
+                    or _extract_error_message(event.get("result"))
+                    or f"Gemini CLI failed with status {status}."
                 )
                 return
             self._flush_chunks(elapsed_ms=elapsed_ms)
@@ -731,9 +789,12 @@ CursorCommandAccumulator = ProviderCommandAccumulator
 
 async def measure_provider_command_turn(
     *,
+    run_metadata: BenchmarkRunMetadata | None = None,
     provider: str,
     scenario_kind: ScenarioKind,
     scenario_name: str,
+    benchmark_family: str | None = None,
+    benchmark_revision: str | None = None,
     prompt: str,
     command: Sequence[str],
     working_directory: str | None,
@@ -747,9 +808,11 @@ async def measure_provider_command_turn(
     latency_archetype: str | None = None,
     report_group: str | None = None,
     provider_transport: str | None = None,
+    provider_submit_mode: str | None = None,
     model: str | None = None,
     thinking_level: str | None = None,
     access_policy: str = "readonly",
+    fresh_session_strategy: str | None = None,
 ) -> BenchmarkTurnResult:
     proc = await asyncio.create_subprocess_exec(
         *command,
@@ -785,13 +848,26 @@ async def measure_provider_command_turn(
     )
 
     return BenchmarkTurnResult(
+        run_id=run_metadata.run_id if run_metadata else None,
+        plan_path=run_metadata.plan_path if run_metadata else None,
+        plan_sha256=run_metadata.plan_sha256 if run_metadata else None,
+        git_sha=run_metadata.git_sha if run_metadata else None,
+        git_sha_short=run_metadata.git_sha_short if run_metadata else None,
+        host_os=run_metadata.host_os if run_metadata else None,
+        host_arch=run_metadata.host_arch if run_metadata else None,
+        python_version=run_metadata.python_version if run_metadata else None,
+        run_started_at_utc=(run_metadata.started_at_utc if run_metadata else None),
         scenario_name=scenario_name,
         scenario_kind=scenario_kind,
+        benchmark_family=benchmark_family,
+        benchmark_revision=benchmark_revision,
         provider=provider,
         provider_transport=provider_transport,
+        provider_submit_mode=provider_submit_mode,
         model=model,
         thinking_level=thinking_level,
         access_policy=access_policy,
+        fresh_session_strategy=fresh_session_strategy,
         report_group=report_group,
         latency_archetype=latency_archetype,
         prompt_variant=prompt_variant,
@@ -827,11 +903,16 @@ measure_cursor_command_turn = measure_provider_command_turn
 async def run_benchmark_plan(
     plan: BenchmarkPlan,
     *,
+    run_metadata: BenchmarkRunMetadata | None = None,
     on_turn_result: TurnResultObserver | None = None,
 ) -> tuple[BenchmarkScenarioResult, ...]:
     return tuple(
         [
-            await run_benchmark_scenario(scenario, on_turn_result=on_turn_result)
+            await run_benchmark_scenario(
+                scenario,
+                run_metadata=run_metadata,
+                on_turn_result=on_turn_result,
+            )
             for scenario in plan.scenarios
         ]
     )
@@ -840,6 +921,7 @@ async def run_benchmark_plan(
 async def run_benchmark_scenario(
     scenario: BenchmarkScenario,
     *,
+    run_metadata: BenchmarkRunMetadata | None = None,
     on_turn_result: TurnResultObserver | None = None,
 ) -> BenchmarkScenarioResult:
     turn_results: list[BenchmarkTurnResult] = []
@@ -852,6 +934,7 @@ async def run_benchmark_scenario(
             prompt_id = (
                 turn.prompt_id or scenario.prompt_id or turn.label or scenario.name
             )
+            latency_archetype = turn.latency_archetype or scenario.latency_archetype
 
             if scenario.kind == "provider_stream":
                 config = build_scenario_config(
@@ -863,14 +946,17 @@ async def run_benchmark_scenario(
                     result = await asyncio.wait_for(
                         measure_provider_stream_turn(
                             config,
+                            run_metadata=run_metadata,
                             scenario_name=scenario.name,
+                            benchmark_family=scenario.benchmark_family,
+                            benchmark_revision=scenario.benchmark_revision,
                             repeat_index=repeat_index,
                             turn_index=turn_index,
                             turn_label=turn.label,
                             session_state=session_state,
                             prompt_id=prompt_id,
                             prompt_variant=scenario.prompt_variant,
-                            latency_archetype=scenario.latency_archetype,
+                            latency_archetype=latency_archetype,
                             report_group=scenario.report_group,
                         ),
                         timeout=scenario.timeout_seconds,
@@ -878,6 +964,7 @@ async def run_benchmark_scenario(
                 except TimeoutError:
                     result = _timeout_result(
                         scenario=scenario,
+                        run_metadata=run_metadata,
                         prompt=turn.prompt,
                         repeat_index=repeat_index,
                         turn_index=turn_index,
@@ -885,6 +972,7 @@ async def run_benchmark_scenario(
                         command=tuple(build_stream_command(config)),
                         session_state=session_state,
                         prompt_id=prompt_id,
+                        latency_archetype=latency_archetype,
                     )
             else:
                 if scenario.command is not None and turn_index > 1:
@@ -903,9 +991,12 @@ async def run_benchmark_scenario(
                 try:
                     result = await asyncio.wait_for(
                         measure_provider_command_turn(
+                            run_metadata=run_metadata,
                             provider=scenario.provider,
                             scenario_kind=scenario.kind,
                             scenario_name=scenario.name,
+                            benchmark_family=scenario.benchmark_family,
+                            benchmark_revision=scenario.benchmark_revision,
                             prompt=turn.prompt,
                             command=command,
                             working_directory=scenario.working_directory,
@@ -916,18 +1007,21 @@ async def run_benchmark_scenario(
                             session_state=session_state,
                             prompt_id=prompt_id,
                             prompt_variant=scenario.prompt_variant,
-                            latency_archetype=scenario.latency_archetype,
+                            latency_archetype=latency_archetype,
                             report_group=scenario.report_group,
                             provider_transport=scenario.provider_transport,
+                            provider_submit_mode=scenario.provider_submit_mode,
                             model=scenario.model,
                             thinking_level=scenario.thinking_level,
                             access_policy=scenario.access_policy,
+                            fresh_session_strategy=scenario.fresh_session_strategy,
                         ),
                         timeout=scenario.timeout_seconds,
                     )
                 except TimeoutError:
                     result = _timeout_result(
                         scenario=scenario,
+                        run_metadata=run_metadata,
                         prompt=turn.prompt,
                         repeat_index=repeat_index,
                         turn_index=turn_index,
@@ -935,6 +1029,7 @@ async def run_benchmark_scenario(
                         command=tuple(command),
                         session_state=session_state,
                         prompt_id=prompt_id,
+                        latency_archetype=latency_archetype,
                     )
 
             turn_results.append(result)
@@ -953,6 +1048,7 @@ async def run_benchmark_scenario(
 def _timeout_result(
     *,
     scenario: BenchmarkScenario,
+    run_metadata: BenchmarkRunMetadata | None,
     prompt: str,
     repeat_index: int,
     turn_index: int,
@@ -960,18 +1056,32 @@ def _timeout_result(
     command: tuple[str, ...] | None,
     session_state: SessionState,
     prompt_id: str,
+    latency_archetype: str | None,
 ) -> BenchmarkTurnResult:
     timeout_ms = float(scenario.timeout_seconds * 1000)
     return BenchmarkTurnResult(
+        run_id=run_metadata.run_id if run_metadata else None,
+        plan_path=run_metadata.plan_path if run_metadata else None,
+        plan_sha256=run_metadata.plan_sha256 if run_metadata else None,
+        git_sha=run_metadata.git_sha if run_metadata else None,
+        git_sha_short=run_metadata.git_sha_short if run_metadata else None,
+        host_os=run_metadata.host_os if run_metadata else None,
+        host_arch=run_metadata.host_arch if run_metadata else None,
+        python_version=run_metadata.python_version if run_metadata else None,
+        run_started_at_utc=(run_metadata.started_at_utc if run_metadata else None),
         scenario_name=scenario.name,
         scenario_kind=scenario.kind,
+        benchmark_family=scenario.benchmark_family,
+        benchmark_revision=scenario.benchmark_revision,
         provider=scenario.provider,
         provider_transport=scenario.provider_transport,
+        provider_submit_mode=scenario.provider_submit_mode,
         model=scenario.model,
         thinking_level=scenario.thinking_level,
         access_policy=scenario.access_policy,
+        fresh_session_strategy=scenario.fresh_session_strategy,
         report_group=scenario.report_group,
-        latency_archetype=scenario.latency_archetype,
+        latency_archetype=latency_archetype,
         prompt_variant=scenario.prompt_variant,
         prompt_id=prompt_id,
         session_state=session_state,

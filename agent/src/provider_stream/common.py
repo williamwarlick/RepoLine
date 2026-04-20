@@ -510,6 +510,31 @@ def _string_value(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+def _extract_error_message(value: Any) -> str | None:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+
+    if isinstance(value, dict):
+        for key in ("message", "error", "detail", "description"):
+            extracted = _extract_error_message(value.get(key))
+            if extracted:
+                return extracted
+
+        for key in ("cause", "data", "payload"):
+            extracted = _extract_error_message(value.get(key))
+            if extracted:
+                return extracted
+
+    if isinstance(value, list):
+        for item in value:
+            extracted = _extract_error_message(item)
+            if extracted:
+                return extracted
+
+    return None
+
+
 def _extract_text_candidate(value: Any) -> str | None:
     if isinstance(value, str) and value:
         return value

@@ -2,6 +2,8 @@
 
 RepoLine's current latency work is centered on the scenario-runner harness, not on public benchmark charts.
 
+The current charting rule is simple: never compare rows unless `benchmark_family`, `benchmark_revision`, and `plan_sha256` all match, and treat provider transport, submit mode, and fresh-session strategy as part of the comparison contract rather than incidental details.
+
 ## Current Buckets
 
 The harness records four timing buckets per turn:
@@ -36,6 +38,8 @@ The local report flags these buckets today:
 
 These are not hard product SLAs. They are local comparison thresholds for deciding what feels acceptable in planning mode.
 
+Also be honest about sample size: groups with fewer than 3 rows are still useful for exploration, but they are not stable enough to present as a settled recommendation.
+
 ## Scope Boundary
 
 RepoLine is a voice bridge for coding agents with local repo access.
@@ -66,17 +70,26 @@ Use the smoke pack first when you are testing prompt changes or CLI compatibilit
 ```bash
 bun run benchmark:latency benchmarks/latency/planning-latency-smoke.json \
   --json-out output/latency/planning-latency-smoke.jsonl
-python3 ./scripts/latency_report.py output/latency/planning-latency-smoke.jsonl \
+bun run benchmark:report output/latency/planning-latency-smoke.jsonl \
   --markdown-out output/latency/planning-latency-smoke.md
 ```
 
 The JSONL file is written incrementally during the run, so you can inspect partial turn records without waiting for the whole pack to finish.
 
-## Run The Harness
+## Run The Canonical Cross-Provider Pack
 
 ```bash
-bun run benchmark:latency benchmarks/latency/planning-latency-core.json \
-  --json-out output/latency/planning-latency-core.jsonl
-python3 ./scripts/latency_report.py output/latency/planning-latency-core.jsonl \
-  --markdown-out output/latency/planning-latency-core.md
+bun run benchmark:latency benchmarks/latency/cross-provider-latency-v1.json \
+  --json-out output/latency/cross-provider-latency-v1.jsonl
+bun run benchmark:report output/latency/cross-provider-latency-v1.jsonl \
+  --markdown-out output/latency/cross-provider-latency-v1.md
+bun run benchmark:analyze output/latency/cross-provider-latency-v1.jsonl \
+  --output-dir output/latency
 ```
+
+The provider comparison chart keeps `fresh` and `warm` separate, the fresh archetype chart stays tied to the single-turn prompt pack so the chart remains statistically honest, and the session-delta chart reports `warm - fresh` so reuse effects are visible directly.
+The analysis step also writes tidy CSV exports for provider summaries, fresh archetype summaries, session deltas, and failure reasons. Those CSVs carry `median`, `p90`, `IQR`, and bootstrap median confidence intervals so the benchmark data is reusable outside the Markdown reports.
+
+If you want a faster checked-in artifact before running the full pack, use [`benchmarks/latency/cross-provider-latency-v1-smoke.json`](../benchmarks/latency/cross-provider-latency-v1-smoke.json) and analyze that JSONL with the same `benchmark:report` and `benchmark:analyze` flow.
+
+For the current unified cross-provider packs, the Cursor App path uses the stable `auto` submit mode without forcing a new composer for every fresh row. The current Cursor desktop build still makes strict fresh-composer isolation too flaky for the default comparison contract.

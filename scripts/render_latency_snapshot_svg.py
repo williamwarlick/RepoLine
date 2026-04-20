@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a static SVG latency snapshot from checked-in RepoLine JSONL artifacts."""
+"""Render a static SVG latency snapshot from comparable RepoLine JSONL artifacts."""
 
 from __future__ import annotations
 
@@ -30,6 +30,31 @@ def _load_rows(path: Path) -> list[dict[str, object]]:
     return rows
 
 
+def _benchmark_identity(rows: list[dict[str, object]]) -> tuple[str, str]:
+    families = {str(row.get("benchmark_family") or "").strip() for row in rows}
+    revisions = {str(row.get("benchmark_revision") or "").strip() for row in rows}
+    if len(families) != 1 or "" in families:
+        raise ValueError(
+            "Snapshot rendering requires exactly one non-empty benchmark_family per input file."
+        )
+    if len(revisions) != 1 or "" in revisions:
+        raise ValueError(
+            "Snapshot rendering requires exactly one non-empty benchmark_revision per input file."
+        )
+    return next(iter(families)), next(iter(revisions))
+
+
+def _plan_identity(rows: list[dict[str, object]]) -> str | None:
+    hashes = {str(row.get("plan_sha256") or "").strip() for row in rows}
+    if hashes == {""}:
+        return None
+    if len(hashes) != 1 or "" in hashes:
+        raise ValueError(
+            "Snapshot rendering requires exactly one plan_sha256 per input file when plan fingerprints are present."
+        )
+    return next(iter(hashes))
+
+
 def _median_ms(rows: list[dict[str, object]]) -> float:
     values = [
         float(row["spoken_response_latency_ms"])
@@ -57,6 +82,8 @@ def _group_rows(
 
 def _planning_series(path: Path) -> list[SeriesPoint]:
     rows = _load_rows(path)
+    _benchmark_identity(rows)
+    _plan_identity(rows)
     label_map = {
         "codex": ("Codex CLI", "#2563eb"),
         "cursor:cli": ("Cursor Agent CLI", "#f59e0b"),
@@ -90,6 +117,8 @@ def _planning_series(path: Path) -> list[SeriesPoint]:
 
 def _cursor_runtime_series(path: Path) -> list[SeriesPoint]:
     rows = _load_rows(path)
+    _benchmark_identity(rows)
+    _plan_identity(rows)
     label_map = {
         "app": ("Cursor App", "#10b981"),
         "cli": ("Cursor Agent CLI", "#f59e0b"),
@@ -245,6 +274,12 @@ def main() -> int:
     planning_path = Path(args.planning_jsonl).expanduser().resolve()
     cursor_path = Path(args.cursor_jsonl).expanduser().resolve()
     output_path = Path(args.svg_out).expanduser().resolve()
+    planning_identity = _benchmark_identity(_load_rows(planning_path))
+    cursor_identity = _benchmark_identity(_load_rows(cursor_path))
+    if planning_identity != cursor_identity:
+        raise ValueError(
+            "Refusing to render a mixed-family snapshot. Use scripts/latency_analysis.py on one comparable benchmark family and revision instead."
+        )
 
     svg = _render_svg(
         planning_series=_planning_series(planning_path),

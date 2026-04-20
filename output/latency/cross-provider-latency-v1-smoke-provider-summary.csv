@@ -1,0 +1,9 @@
+session_state,provider_key,provider_label,ok_count,total_count,success_rate,median_spoken_ms,p90_spoken_ms,q1_spoken_ms,q3_spoken_ms,ci_low_ms,ci_high_ms,median_assistant_ms,median_done_ms
+fresh,cursor:app:submit=auto,Cursor App (auto),5,5,1.0,4026.6,4593.84,2966.9,4053.3,2943.9,4954.2,4026.6,4100.6
+fresh,cursor:cli,Cursor Agent CLI,5,5,1.0,4518.3,7383.5,4289.8,6285.8,4176.4,8115.3,4514.8,7052.8
+fresh,codex,Codex CLI,5,5,1.0,7550.7,11859.94,7399.5,11550.1,5674.7,12066.5,7550.7,7816.1
+fresh,gemini:cli,Gemini CLI,5,5,1.0,10126.1,17518.84,10071.2,17033.8,8872.6,17842.2,10106.2,10200.0
+warm,cursor:cli,Cursor Agent CLI,1,1,1.0,3723.7,3723.7,3723.7,3723.7,3723.7,3723.7,3722.8,4975.9
+warm,cursor:app:submit=auto,Cursor App (auto),1,1,1.0,4015.1,4015.1,4015.1,4015.1,4015.1,4015.1,4015.1,4091.4
+warm,gemini:cli,Gemini CLI,1,1,1.0,8198.9,8198.9,8198.9,8198.9,8198.9,8198.9,8177.9,8274.3
+warm,codex,Codex CLI,1,1,1.0,9440.8,9440.8,9440.8,9440.8,9440.8,9440.8,9440.8,9697.9

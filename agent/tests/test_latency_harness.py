@@ -6,7 +6,9 @@ import pytest
 
 from latency_harness import (
     BenchmarkPlan,
+    BenchmarkRunMetadata,
     BenchmarkScenario,
+    BenchmarkTurnSpec,
     BenchmarkTurnResult,
     CursorCommandAccumulator,
     ProviderCommandAccumulator,
@@ -27,6 +29,8 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
                     "provider": "cursor",
                     "working_directory": ".",
                     "chunk_chars": 120,
+                    "benchmark_family": "cross_provider_latency",
+                    "benchmark_revision": "smoke-v1",
                 },
                 "scenarios": [
                     {
@@ -44,8 +48,16 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
                         "name": "direct",
                         "kind": "cursor_command",
                         "turns": [
-                            {"label": "first", "prompt": "Hello"},
-                            {"label": "second", "prompt": "Follow up"},
+                            {
+                                "label": "first",
+                                "prompt": "Hello",
+                                "latency_archetype": "trivial-conversation",
+                            },
+                            {
+                                "label": "second",
+                                "prompt": "Follow up",
+                                "latency_archetype": "planning-question",
+                            },
                         ],
                     },
                 ],
@@ -59,6 +71,8 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
     assert len(plan.scenarios) == 2
     assert plan.scenarios[0].working_directory == str(tmp_path.resolve())
     assert plan.scenarios[0].chunk_chars == 120
+    assert plan.scenarios[0].benchmark_family == "cross_provider_latency"
+    assert plan.scenarios[0].benchmark_revision == "smoke-v1"
     assert plan.scenarios[0].provider_submit_mode == "bridge-composer-handle"
     assert plan.scenarios[0].fresh_session_strategy == "new_composer"
     assert plan.scenarios[0].timeout_seconds == 60
@@ -67,6 +81,9 @@ def test_load_benchmark_plan_merges_defaults_and_resolves_workdir(tmp_path) -> N
     assert plan.scenarios[0].prompt_id == "repo-summary-1"
     assert plan.scenarios[0].report_group == "core"
     assert [turn.label for turn in plan.scenarios[1].turns] == ["first", "second"]
+    assert [
+        turn.latency_archetype for turn in plan.scenarios[1].turns
+    ] == ["trivial-conversation", "planning-question"]
 
 
 def test_build_scenario_config_can_embed_repoline_prompt(tmp_path) -> None:
@@ -125,14 +142,42 @@ async def test_measure_provider_stream_turn_tracks_first_chunk_and_done() -> Non
         yield TextStreamEvent(type="done", exit_code=0, session_id="cursor-session")
 
     result = await measure_provider_stream_turn(
-        TextStreamConfig(provider="cursor", prompt="Hello"),
+        TextStreamConfig(
+            provider="cursor",
+            prompt="Hello",
+            provider_transport="app",
+            provider_submit_mode="auto",
+            fresh_session_strategy="new_composer",
+        ),
+        run_metadata=BenchmarkRunMetadata(
+            run_id="run-123",
+            plan_path="/tmp/bench.json",
+            plan_sha256="planhash123",
+            git_sha="abc123def456",
+            git_sha_short="abc123d",
+            host_os="Darwin",
+            host_arch="arm64",
+            python_version="3.13.11",
+            started_at_utc="2026-04-20T05:42:00Z",
+        ),
         scenario_name="stream",
+        benchmark_family="cross_provider_latency",
+        benchmark_revision="v1",
         repeat_index=1,
         turn_index=1,
         stream_events=fake_stream,
     )
 
     assert result.provider_first_status_message == "Starting Cursor Agent stream."
+    assert result.run_id == "run-123"
+    assert result.plan_sha256 == "planhash123"
+    assert result.git_sha_short == "abc123d"
+    assert result.host_os == "Darwin"
+    assert result.benchmark_family == "cross_provider_latency"
+    assert result.benchmark_revision == "v1"
+    assert result.provider_transport == "app"
+    assert result.provider_submit_mode == "auto"
+    assert result.fresh_session_strategy == "new_composer"
     assert result.provider_first_assistant_preview == "RepoLine is"
     assert result.spoken_response_preview == "RepoLine is live."
     assert result.response_text == "RepoLine is live."
@@ -152,12 +197,16 @@ async def test_measure_provider_stream_turn_classifies_stream_exceptions_as_prov
     result = await measure_provider_stream_turn(
         TextStreamConfig(provider="cursor", prompt="Hello"),
         scenario_name="stream",
+        benchmark_family="cross_provider_latency",
+        benchmark_revision="v1",
         repeat_index=1,
         turn_index=1,
         stream_events=failing_stream,
     )
 
     assert result.outcome == "provider_error"
+    assert result.benchmark_family == "cross_provider_latency"
+    assert result.benchmark_revision == "v1"
     assert result.error_message == "app submit failed"
     assert result.provider_first_status_message == "Starting Cursor Agent stream."
     assert result.completed_turn_ms >= 0
@@ -263,6 +312,28 @@ def test_provider_command_accumulator_tracks_gemini_first_assistant_and_chunk() 
     assert accumulator.speech_chunk_count == 1
 
 
+def test_provider_command_accumulator_preserves_gemini_nested_error_message() -> None:
+    accumulator = ProviderCommandAccumulator(provider="gemini", chunk_chars=140)
+    accumulator.observe_line(
+        json.dumps(
+            {
+                "type": "result",
+                "session_id": "gemini-1",
+                "status": "error",
+                "error": {
+                    "type": "Error",
+                    "message": "[API Error: You have exhausted your capacity on this model.]",
+                },
+            }
+        ),
+        elapsed_ms=55.0,
+    )
+
+    assert accumulator.session_id == "gemini-1"
+    assert accumulator.error_message is not None
+    assert "exhausted your capacity" in accumulator.error_message
+
+
 def test_provider_command_accumulator_tracks_openclaw_plain_output() -> None:
     accumulator = ProviderCommandAccumulator(provider="openclaw", chunk_chars=140)
     accumulator.observe_line(
@@ -313,22 +384,36 @@ def test_provider_command_accumulator_tracks_openclaw_json_output() -> None:
 async def test_run_benchmark_plan_streams_turn_results_to_observer(monkeypatch) -> None:
     observed_prompt_ids: list[str] = []
     observed_previews: list[str | None] = []
+    observed_archetypes: list[str | None] = []
 
     async def fake_measure_provider_stream_turn(
-        config: TextStreamConfig, **_: object
+        config: TextStreamConfig, **kwargs: object
     ) -> BenchmarkTurnResult:
         return BenchmarkTurnResult(
+            run_id="run-123",
+            plan_path="/tmp/bench.json",
+            plan_sha256="planhash123",
+            git_sha="abc123def456",
+            git_sha_short="abc123d",
+            host_os="Darwin",
+            host_arch="arm64",
+            python_version="3.13.11",
+            run_started_at_utc="2026-04-20T05:42:00Z",
             scenario_name="stream",
             scenario_kind="provider_stream",
+            benchmark_family="cross_provider_latency",
+            benchmark_revision="v1",
             provider=config.provider,
             provider_transport=config.provider_transport,
+            provider_submit_mode=config.provider_submit_mode,
             model=config.model,
             thinking_level=config.thinking_level,
             access_policy=config.access_policy,
+            fresh_session_strategy=config.fresh_session_strategy,
             report_group=None,
-            latency_archetype=None,
+            latency_archetype=kwargs.get("latency_archetype"),  # type: ignore[arg-type]
             prompt_variant=None,
-            prompt_id="repo-summary-1",
+            prompt_id=kwargs.get("prompt_id", "repo-summary-1"),  # type: ignore[arg-type]
             session_state="fresh",
             repeat_index=1,
             turn_index=1,
@@ -368,15 +453,108 @@ async def test_run_benchmark_plan_streams_turn_results_to_observer(monkeypatch) 
                     working_directory="/tmp",
                     prompt="What does RepoLine do?",
                     prompt_id="repo-summary-1",
+                    latency_archetype="planning-question",
                 ),
             )
         ),
         on_turn_result=lambda turn: (
             observed_prompt_ids.append(turn.prompt_id),
             observed_previews.append(turn.provider_first_assistant_preview),
+            observed_archetypes.append(turn.latency_archetype),
         ),
     )
 
     assert observed_prompt_ids == ["repo-summary-1"]
     assert observed_previews == ["RepoLine is quick."]
+    assert observed_archetypes == ["planning-question"]
     assert results[0].turns[0].provider_first_assistant_preview == "RepoLine is quick."
+
+
+@pytest.mark.asyncio
+async def test_run_benchmark_plan_uses_per_turn_latency_archetype(monkeypatch) -> None:
+    observed_archetypes: list[str | None] = []
+
+    async def fake_measure_provider_stream_turn(
+        config: TextStreamConfig, **kwargs: object
+    ) -> BenchmarkTurnResult:
+        observed_archetypes.append(kwargs.get("latency_archetype"))  # type: ignore[arg-type]
+        return BenchmarkTurnResult(
+            run_id="run-123",
+            plan_path="/tmp/bench.json",
+            plan_sha256="planhash123",
+            git_sha="abc123def456",
+            git_sha_short="abc123d",
+            host_os="Darwin",
+            host_arch="arm64",
+            python_version="3.13.11",
+            run_started_at_utc="2026-04-20T05:42:00Z",
+            scenario_name="stream",
+            scenario_kind="provider_stream",
+            benchmark_family="cross_provider_latency",
+            benchmark_revision="v1",
+            provider=config.provider,
+            provider_transport=config.provider_transport,
+            provider_submit_mode=config.provider_submit_mode,
+            model=config.model,
+            thinking_level=config.thinking_level,
+            access_policy=config.access_policy,
+            fresh_session_strategy=config.fresh_session_strategy,
+            report_group=None,
+            latency_archetype=kwargs.get("latency_archetype"),  # type: ignore[arg-type]
+            prompt_variant=None,
+            prompt_id="repo-summary-1",
+            session_state="fresh",
+            repeat_index=1,
+            turn_index=1,
+            prompt=config.prompt,
+            turn_label=None,
+            command=("codex", "exec"),
+            working_directory=config.working_directory,
+            outcome="ok",
+            provider_first_status_ms=10.0,
+            provider_first_status_message="Starting Codex CLI stream.",
+            provider_first_assistant_delta_ms=24.0,
+            provider_first_assistant_preview="RepoLine is quick.",
+            spoken_response_latency_ms=24.0,
+            spoken_response_preview="RepoLine is quick.",
+            completed_turn_ms=80.0,
+            response_text="RepoLine is quick.",
+            exit_code=0,
+            session_id="session-1",
+            error_message=None,
+            status_count=1,
+            speech_chunk_count=1,
+            line_count=0,
+        )
+
+    monkeypatch.setattr(
+        "latency_harness.measure_provider_stream_turn",
+        fake_measure_provider_stream_turn,
+    )
+
+    await run_benchmark_plan(
+        BenchmarkPlan(
+            scenarios=(
+                BenchmarkScenario(
+                    name="stream",
+                    kind="provider_stream",
+                    provider="codex",
+                    working_directory="/tmp",
+                    turns=(
+                        BenchmarkTurnSpec(
+                            prompt="What does RepoLine do?",
+                            prompt_id="repo-summary-1",
+                            latency_archetype="planning-question",
+                        ),
+                        BenchmarkTurnSpec(
+                            prompt="Reply with just the path.",
+                            prompt_id="harness-path-1",
+                            latency_archetype="repo-lookup",
+                        ),
+                    ),
+                ),
+            )
+        ),
+    )
+
+    assert observed_archetypes == ["planning-question", "repo-lookup"]

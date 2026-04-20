@@ -1,5 +1,7 @@
 {
   "defaults": {
+    "benchmark_family": "cursor_submit_mode",
+    "benchmark_revision": "v1",
     "provider": "cursor",
     "working_directory": ".",
     "model": "composer-2-fast",

@@ -1,5 +1,7 @@
 {
   "defaults": {
+    "benchmark_family": "conversation_latency",
+    "benchmark_revision": "codex-v1",
     "provider": "codex",
     "working_directory": ".",
     "access_policy": "readonly",

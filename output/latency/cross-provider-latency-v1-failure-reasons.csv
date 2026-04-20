@@ -1,0 +1,2 @@
+provider_label,outcome,count,reason
+Gemini CLI,provider_error,19,Gemini CLI failed with status error.

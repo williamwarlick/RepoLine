@@ -1,5 +1,7 @@
 {
   "defaults": {
+    "benchmark_family": "session_state_latency",
+    "benchmark_revision": "cursor-v1",
     "provider": "cursor",
     "working_directory": ".",
     "model": "composer-2-fast",

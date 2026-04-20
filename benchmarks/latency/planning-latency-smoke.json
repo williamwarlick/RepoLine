@@ -1,5 +1,7 @@
 {
   "defaults": {
+    "benchmark_family": "cross_provider_latency",
+    "benchmark_revision": "legacy-smoke-v1",
     "working_directory": ".",
     "access_policy": "readonly",
     "chunk_chars": 100,

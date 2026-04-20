@@ -1,0 +1,9 @@
+latency_archetype,scope_label,provider_key,provider_label,fresh_ok_count,fresh_total_count,fresh_success_rate,fresh_median_spoken_ms,warm_ok_count,warm_total_count,warm_success_rate,warm_median_spoken_ms,delta_spoken_ms,delta_spoken_pct,delta_assistant_ms,delta_done_ms
+,All Turns,gemini:cli,Gemini CLI,5,5,1.0,10126.1,1,1,1.0,8198.9,-1927.2000000000007,-19.032006399304773,-1928.300000000001,-1925.7000000000007
+,All Turns,cursor:cli,Cursor Agent CLI,5,5,1.0,4518.3,1,1,1.0,3723.7,-794.6000000000004,-17.58626031914659,-792.0,-2076.9000000000005
+,All Turns,cursor:app:submit=auto,Cursor App (auto),5,5,1.0,4026.6,1,1,1.0,4015.1,-11.5,-0.2856007549793871,-11.5,-9.200000000000273
+,All Turns,codex,Codex CLI,5,5,1.0,7550.7,1,1,1.0,9440.8,1890.0999999999995,25.032116227634514,1890.0999999999995,1881.7999999999993
+planning-question,Planning Question,gemini:cli,Gemini CLI,2,2,1.0,13357.400000000001,1,1,1.0,8198.9,-5158.500000000002,-38.61904262805636,-5168.449999999999,-5155.25
+planning-question,Planning Question,cursor:cli,Cursor Agent CLI,2,2,1.0,4233.1,1,1,1.0,3723.7,-509.40000000000055,-12.033734142826782,-468.15000000000055,-980.8999999999996
+planning-question,Planning Question,cursor:app:submit=auto,Cursor App (auto),2,2,1.0,3498.6000000000004,1,1,1.0,4015.1,516.4999999999995,14.763048076373392,516.4999999999995,516.9000000000001
+planning-question,Planning Question,codex,Codex CLI,2,2,1.0,6537.1,1,1,1.0,9440.8,2903.699999999999,44.4187789692677,2903.749999999999,2887.2

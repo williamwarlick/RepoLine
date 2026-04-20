@@ -11,6 +11,7 @@ requires-python = ">=3.10, <3.15"
 dependencies = [
     "httpx>=0.28.1",
     "livekit-agents[deepgram,elevenlabs,silero,turn-detector]~=1.5",
+    "matplotlib>=3.10.0",
     "python-dotenv",
 ]
 

@@ -81,29 +81,32 @@ See [SECURITY.md](./SECURITY.md) before exposing RepoLine outside your laptop or
 
 ## Latency Harness
 
-Use the latency harness as a local diagnostic tool for coding-agent latency. The canonical artifact is one JSONL turn record per run, and the local Markdown summary is derived from that JSONL.
+Use the latency harness as a local latency lab for coding-agent response timing. The canonical artifact is one JSONL turn record per run, and each row now carries `benchmark_family`, `benchmark_revision`, a plan SHA-256 fingerprint, transport metadata, submit mode, and fresh-session strategy so reports can reject invalid cross-pack comparisons.
 
 ```bash
-bun run benchmark:latency benchmarks/latency/planning-latency-core.json \
-  --json-out output/latency/planning-latency-core.jsonl
-python3 ./scripts/latency_report.py output/latency/planning-latency-core.jsonl \
-  --markdown-out output/latency/planning-latency-core.md
+bun run benchmark:latency benchmarks/latency/cross-provider-latency-v1.json \
+  --json-out output/latency/cross-provider-latency-v1.jsonl
+bun run benchmark:report output/latency/cross-provider-latency-v1.jsonl \
+  --markdown-out output/latency/cross-provider-latency-v1.md
+bun run benchmark:analyze output/latency/cross-provider-latency-v1.jsonl \
+  --output-dir output/latency
 ```
 
-### Snapshot
+### Comparable Smoke Snapshot
 
-![RepoLine latency snapshot](./docs/assets/repoline-latency-snapshot-2026-04-19.svg)
+![RepoLine cross-provider latency comparison](./output/latency/cross-provider-latency-v1-smoke-provider-comparison.png)
 
-The README snapshot is generated from checked-in local artifacts:
+Current comparable artifacts:
 
-- cross-provider planning smoke: [`output/latency/planning-latency-smoke-postprompt.jsonl`](./output/latency/planning-latency-smoke-postprompt.jsonl) and [`output/latency/planning-latency-smoke-postprompt.md`](./output/latency/planning-latency-smoke-postprompt.md)
-- Cursor runtime comparison: [`output/latency/cursor-app-promotion-runtime-20260419.jsonl`](./output/latency/cursor-app-promotion-runtime-20260419.jsonl) and [`output/latency/cursor-app-promotion-runtime-20260419.md`](./output/latency/cursor-app-promotion-runtime-20260419.md)
-
-Regenerate the SVG with:
-
-```bash
-python3 ./scripts/render_latency_snapshot_svg.py
-```
+- unified smoke rows: [`output/latency/cross-provider-latency-v1-smoke.jsonl`](./output/latency/cross-provider-latency-v1-smoke.jsonl)
+- local diagnostic summary: [`output/latency/cross-provider-latency-v1-smoke.md`](./output/latency/cross-provider-latency-v1-smoke.md)
+- analysis summary: [`output/latency/cross-provider-latency-v1-smoke-analysis.md`](./output/latency/cross-provider-latency-v1-smoke-analysis.md)
+- fresh archetype chart: [`output/latency/cross-provider-latency-v1-smoke-fresh-archetypes.png`](./output/latency/cross-provider-latency-v1-smoke-fresh-archetypes.png)
+- session delta chart: [`output/latency/cross-provider-latency-v1-smoke-session-deltas.png`](./output/latency/cross-provider-latency-v1-smoke-session-deltas.png)
+- provider summary CSV: [`output/latency/cross-provider-latency-v1-smoke-provider-summary.csv`](./output/latency/cross-provider-latency-v1-smoke-provider-summary.csv)
+- fresh archetype CSV: [`output/latency/cross-provider-latency-v1-smoke-fresh-archetypes.csv`](./output/latency/cross-provider-latency-v1-smoke-fresh-archetypes.csv)
+- failure reasons CSV: [`output/latency/cross-provider-latency-v1-smoke-failure-reasons.csv`](./output/latency/cross-provider-latency-v1-smoke-failure-reasons.csv)
+- session delta CSV: [`output/latency/cross-provider-latency-v1-smoke-session-deltas.csv`](./output/latency/cross-provider-latency-v1-smoke-session-deltas.csv)
 
 The core planning harness measures:
 
@@ -113,19 +116,36 @@ The core planning harness measures:
 - `completed_turn_ms`
 - `fresh` versus `warm` session state
 - `prompt_variant` and `latency_archetype` as first-class dimensions
+- provider transport, submit mode, and fresh-session strategy
+- `benchmark_family` and `benchmark_revision` as hard comparability keys
 
-The default comparison pack is the three coding-agent paths we currently want to compare directly:
+The canonical cross-provider comparison pack is:
 
 - `codex`
+- `cursor` app transport
 - `cursor` CLI transport
 - `gemini` CLI transport
+
+For a faster checked-in artifact that still uses the same unified comparison shape, use the smoke companion pack:
+
+```bash
+bun run benchmark:latency benchmarks/latency/cross-provider-latency-v1-smoke.json \
+  --json-out output/latency/cross-provider-latency-v1-smoke.jsonl
+bun run benchmark:report output/latency/cross-provider-latency-v1-smoke.jsonl \
+  --markdown-out output/latency/cross-provider-latency-v1-smoke.md
+bun run benchmark:analyze output/latency/cross-provider-latency-v1-smoke.jsonl \
+  --output-dir output/latency
+```
+
+The report and analysis flow keeps `fresh` and `warm` separate on purpose, and the chart layer rejects mixed benchmark families or revisions by default.
+`benchmark:analyze` also emits a warm-vs-fresh session-delta chart plus tidy CSV exports with `median`, `p90`, `IQR`, bootstrap median confidence intervals, and grouped failure reasons so the data can be reused in notebooks or slides without scraping Markdown tables.
 
 There is also a dedicated prompt-variant pack for Codex:
 
 ```bash
 bun run benchmark:latency benchmarks/latency/prompt-variants-codex.json \
   --json-out output/latency/prompt-variants-codex.jsonl
-python3 ./scripts/latency_report.py output/latency/prompt-variants-codex.jsonl \
+bun run benchmark:report output/latency/prompt-variants-codex.jsonl \
   --markdown-out output/latency/prompt-variants-codex.md
 ```
 

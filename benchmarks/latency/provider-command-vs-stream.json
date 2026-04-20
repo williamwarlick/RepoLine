@@ -1,5 +1,7 @@
 {
   "defaults": {
+    "benchmark_family": "transport_mode",
+    "benchmark_revision": "v1",
     "working_directory": ".",
     "access_policy": "readonly",
     "chunk_chars": 80,

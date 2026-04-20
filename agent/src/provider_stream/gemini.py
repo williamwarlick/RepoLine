@@ -10,6 +10,7 @@ from .common import (
     TextStreamConfig,
     TextStreamEvent,
     _embed_prompt_instructions,
+    _extract_error_message,
     _extract_content_artifacts,
     _extract_incremental_text,
     _extract_text_candidate,
@@ -140,11 +141,16 @@ class GeminiProviderStreamAdapter:
                 if event_type == "result":
                     status = _string_value(event.get("status")) or "success"
                     if status != "success":
+                        error_message = (
+                            _extract_error_message(event.get("error"))
+                            or _extract_error_message(event.get("result"))
+                            or assistant_text
+                            or f"{provider_name} failed with status {status}."
+                        )
                         reported_error = True
                         yield TextStreamEvent(
                             type="error",
-                            message=assistant_text
-                            or f"{provider_name} failed with status {status}.",
+                            message=error_message,
                             exit_code=proc.returncode,
                             session_id=current_session_id,
                         )

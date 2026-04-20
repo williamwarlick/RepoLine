@@ -1,0 +1,17 @@
+latency_archetype,provider_key,provider_label,session_state,ok_count,total_count,success_rate,median_spoken_ms,p90_spoken_ms,q1_spoken_ms,q3_spoken_ms,ci_low_ms,ci_high_ms,median_assistant_ms,median_done_ms
+trivial-conversation,cursor:app:submit=auto,Cursor App (auto),fresh,3,3,1.0,4072.6,4126.28,3841.6,4106.15,3610.6,4139.7,4072.6,4164.7
+trivial-conversation,cursor:cli,Cursor Agent CLI,fresh,3,3,1.0,5444.8,8696.8,4705.85,7477.299999999999,3966.9,9509.8,5444.8,6034.5
+trivial-conversation,codex,Codex CLI,fresh,3,3,1.0,6272.2,6571.96,6205.799999999999,6459.549999999999,6139.4,6646.9,6272.1,6541.2
+trivial-conversation,gemini:cli,Gemini CLI,fresh,2,3,0.666667,29008.45,40318.01,21939.975,36076.925,14871.5,43145.4,15696.5,14958.2
+planning-question,cursor:app:submit=auto,Cursor App (auto),fresh,6,6,1.0,4121.65,4222.6,3905.725,4186.0,3661.25,4222.6,4121.6,4193.75
+planning-question,cursor:cli,Cursor Agent CLI,fresh,6,6,1.0,4517.15,5706.1,4295.475,4906.450000000001,3980.1,5706.1,4315.0,6023.45
+planning-question,codex,Codex CLI,fresh,6,6,1.0,6060.1,7286.65,5015.35,6312.775,4674.1,7286.65,6060.0,6334.700000000001
+planning-question,gemini:cli,Gemini CLI,fresh,0,6,0.0,,,,,,,,6636.1
+repo-lookup,cursor:app:submit=auto,Cursor App (auto),fresh,3,3,1.0,4006.6,4296.92,3747.35,4188.05,3488.1,4369.5,3906.4,4006.7
+repo-lookup,cursor:cli,Cursor Agent CLI,fresh,3,3,1.0,4867.3,5432.66,4495.35,5220.65,4123.4,5574.0,4865.8,5931.3
+repo-lookup,codex,Codex CLI,fresh,3,3,1.0,8455.8,9079.64,8420.599999999999,8845.7,8385.4,9235.6,8455.7,17110.5
+repo-lookup,gemini:cli,Gemini CLI,fresh,0,3,0.0,,,,,,,,6257.7
+light-investigation,cursor:app:submit=auto,Cursor App (auto),fresh,3,3,1.0,4297.8,4321.88,2838.95,4312.85,1380.1,4327.9,4297.8,4395.5
+light-investigation,cursor:cli,Cursor Agent CLI,fresh,3,3,1.0,5368.5,5577.62,5141.45,5499.2,4914.4,5629.9,5359.2,6736.6
+light-investigation,codex,Codex CLI,fresh,3,3,1.0,7709.4,8215.72,6254.1,8025.849999999999,4798.8,8342.3,7709.3,8010.8
+light-investigation,gemini:cli,Gemini CLI,fresh,0,3,0.0,,,,,,,,6315.4

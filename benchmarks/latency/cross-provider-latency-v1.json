@@ -1,0 +1,284 @@
+{
+  "defaults": {
+    "benchmark_family": "cross_provider_latency",
+    "benchmark_revision": "v1",
+    "working_directory": ".",
+    "access_policy": "readonly",
+    "chunk_chars": 100,
+    "use_repoline_prompt": true,
+    "thinking_level": "low",
+    "repeats": 3,
+    "timeout_seconds": 90,
+    "prompt_variant": "current_baseline",
+    "report_group": "cross-provider-latency-v1"
+  },
+  "scenarios": [
+    {
+      "name": "codex-trivial-hello",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "codex-repo-summary",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "codex-harness-path",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "codex-cursor-runtime-reason",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "cursor-runtime-reason-1",
+      "prompt": "Why is Cursor App not the boring first-run default in RepoLine? Reply with one short sentence."
+    },
+    {
+      "name": "codex-warm-sequence",
+      "kind": "provider_stream",
+      "provider": "codex",
+      "latency_archetype": "planning-question",
+      "turns": [
+        {
+          "label": "turn-1",
+          "latency_archetype": "planning-question",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-2",
+          "latency_archetype": "repo-lookup",
+          "prompt_id": "harness-path-1",
+          "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+        },
+        {
+          "label": "turn-3",
+          "latency_archetype": "planning-question",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    },
+    {
+      "name": "cursor-app-trivial-hello",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "app",
+      "provider_submit_mode": "auto",
+      "model": "composer-2-fast",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "cursor-app-repo-summary",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "app",
+      "provider_submit_mode": "auto",
+      "model": "composer-2-fast",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "cursor-app-harness-path",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "app",
+      "provider_submit_mode": "auto",
+      "model": "composer-2-fast",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "cursor-app-cursor-runtime-reason",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "app",
+      "provider_submit_mode": "auto",
+      "model": "composer-2-fast",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "cursor-runtime-reason-1",
+      "prompt": "Why is Cursor App not the boring first-run default in RepoLine? Reply with one short sentence."
+    },
+    {
+      "name": "cursor-app-warm-sequence",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "app",
+      "provider_submit_mode": "auto",
+      "model": "composer-2-fast",
+      "latency_archetype": "planning-question",
+      "turns": [
+        {
+          "label": "turn-1",
+          "latency_archetype": "planning-question",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-2",
+          "latency_archetype": "repo-lookup",
+          "prompt_id": "harness-path-1",
+          "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+        },
+        {
+          "label": "turn-3",
+          "latency_archetype": "planning-question",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    },
+    {
+      "name": "cursor-cli-trivial-hello",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "cursor-cli-repo-summary",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "cursor-cli-harness-path",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "cursor-cli-cursor-runtime-reason",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "cursor-runtime-reason-1",
+      "prompt": "Why is Cursor App not the boring first-run default in RepoLine? Reply with one short sentence."
+    },
+    {
+      "name": "cursor-cli-warm-sequence",
+      "kind": "provider_stream",
+      "provider": "cursor",
+      "provider_transport": "cli",
+      "model": "composer-2-fast",
+      "latency_archetype": "planning-question",
+      "turns": [
+        {
+          "label": "turn-1",
+          "latency_archetype": "planning-question",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-2",
+          "latency_archetype": "repo-lookup",
+          "prompt_id": "harness-path-1",
+          "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+        },
+        {
+          "label": "turn-3",
+          "latency_archetype": "planning-question",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    },
+    {
+      "name": "gemini-cli-trivial-hello",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "trivial-conversation",
+      "prompt_id": "hello-1",
+      "prompt": "Say hi in one short sentence."
+    },
+    {
+      "name": "gemini-cli-repo-summary",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "planning-question",
+      "prompt_id": "repo-summary-1",
+      "prompt": "What does RepoLine do in one short sentence?"
+    },
+    {
+      "name": "gemini-cli-harness-path",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    },
+    {
+      "name": "gemini-cli-cursor-runtime-reason",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "light-investigation",
+      "prompt_id": "cursor-runtime-reason-1",
+      "prompt": "Why is Cursor App not the boring first-run default in RepoLine? Reply with one short sentence."
+    },
+    {
+      "name": "gemini-cli-warm-sequence",
+      "kind": "provider_stream",
+      "provider": "gemini",
+      "provider_transport": "cli",
+      "model": "gemini-2.5-flash",
+      "latency_archetype": "planning-question",
+      "turns": [
+        {
+          "label": "turn-1",
+          "latency_archetype": "planning-question",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        },
+        {
+          "label": "turn-2",
+          "latency_archetype": "repo-lookup",
+          "prompt_id": "harness-path-1",
+          "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+        },
+        {
+          "label": "turn-3",
+          "latency_archetype": "planning-question",
+          "prompt_id": "repo-summary-1",
+          "prompt": "What does RepoLine do in one short sentence?"
+        }
+      ]
+    }
+  ]
+}

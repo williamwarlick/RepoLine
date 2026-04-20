@@ -14,6 +14,7 @@
     "agent": "bun run ./scripts/phone-bridge.ts agent",
     "doctor": "bun run ./scripts/phone-bridge.ts doctor",
     "benchmark:latency": "uv run --project agent python ./scripts/latency_harness.py",
-    "benchmark:report": "python3 ./scripts/latency_report.py"
+    "benchmark:report": "uv run --project agent python ./scripts/latency_report.py",
+    "benchmark:analyze": "uv run --project agent python ./scripts/latency_analysis.py"
   }
 }

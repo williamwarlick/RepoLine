@@ -17,7 +17,12 @@ The canonical artifact is one JSONL turn record per run.
 
 Each record carries:
 
-- provider path and model
+- `benchmark_family`
+- `benchmark_revision`
+- `plan_sha256`
+- provider path, transport, and model
+- `provider_submit_mode`
+- `fresh_session_strategy`
 - `prompt_variant`
 - `latency_archetype`
 - `prompt_id`
@@ -65,26 +70,40 @@ Do not average `fresh` and `warm` together when making recommendations.
 
 ## Canonical Plans
 
+- [`benchmarks/latency/cross-provider-latency-v1.json`](../benchmarks/latency/cross-provider-latency-v1.json): canonical current cross-provider pack across `codex`, `cursor app`, `cursor cli`, and `gemini cli`
+- [`benchmarks/latency/cross-provider-latency-v1-smoke.json`](../benchmarks/latency/cross-provider-latency-v1-smoke.json): faster companion pack for checked-in artifacts and iteration with the same provider set
 - [`benchmarks/latency/planning-latency-smoke.json`](../benchmarks/latency/planning-latency-smoke.json): fast smoke pack for day-to-day iteration
-- [`benchmarks/latency/planning-latency-core.json`](../benchmarks/latency/planning-latency-core.json): default coding-agent comparison pack
+- [`benchmarks/latency/planning-latency-core.json`](../benchmarks/latency/planning-latency-core.json): legacy core comparison pack kept for continuity
 - [`benchmarks/latency/prompt-variants-codex.json`](../benchmarks/latency/prompt-variants-codex.json): prompt-engineering pack for Codex
+
+## Run The Canonical Cross-Provider Pack
+
+```bash
+bun run benchmark:latency benchmarks/latency/cross-provider-latency-v1.json \
+  --json-out output/latency/cross-provider-latency-v1.jsonl
+bun run benchmark:report output/latency/cross-provider-latency-v1.jsonl \
+  --markdown-out output/latency/cross-provider-latency-v1.md
+bun run benchmark:analyze output/latency/cross-provider-latency-v1.jsonl \
+  --output-dir output/latency
+```
+
+`benchmark:analyze` writes:
+
+- a provider comparison chart with separate `fresh` and `warm` panels
+- a fresh-only archetype comparison chart
+- a session-reuse delta chart showing `warm - fresh` median spoken latency by provider
+- a Markdown summary with success rates, IQR, bootstrap median confidence intervals, and grouped failure reasons
+- tidy CSV exports for provider summaries, fresh archetype summaries, session deltas, and failure reasons
+
+For the current unified cross-provider packs, the Cursor App rows use the stable app transport path without forcing a fresh composer on every single-turn row. Strict fresh-composer isolation is still too version-sensitive to be part of the default comparison contract.
 
 ## Run The Smoke Pack
 
 ```bash
 bun run benchmark:latency benchmarks/latency/planning-latency-smoke.json \
   --json-out output/latency/planning-latency-smoke.jsonl
-python3 ./scripts/latency_report.py output/latency/planning-latency-smoke.jsonl \
+bun run benchmark:report output/latency/planning-latency-smoke.jsonl \
   --markdown-out output/latency/planning-latency-smoke.md
-```
-
-## Run The Core Pack
-
-```bash
-bun run benchmark:latency benchmarks/latency/planning-latency-core.json \
-  --json-out output/latency/planning-latency-core.jsonl
-python3 ./scripts/latency_report.py output/latency/planning-latency-core.jsonl \
-  --markdown-out output/latency/planning-latency-core.md
 ```
 
 ## Run The Prompt-Variant Pack
@@ -92,7 +111,7 @@ python3 ./scripts/latency_report.py output/latency/planning-latency-core.jsonl \
 ```bash
 bun run benchmark:latency benchmarks/latency/prompt-variants-codex.json \
   --json-out output/latency/prompt-variants-codex.jsonl
-python3 ./scripts/latency_report.py output/latency/prompt-variants-codex.jsonl \
+bun run benchmark:report output/latency/prompt-variants-codex.jsonl \
   --markdown-out output/latency/prompt-variants-codex.md
 ```
 
@@ -102,6 +121,8 @@ python3 ./scripts/latency_report.py output/latency/prompt-variants-codex.jsonl \
 
 - compare `ok` rate before comparing latency
 - compare `median` and `p90`, not just average
+- keep `benchmark_family`, `benchmark_revision`, and `plan_sha256` fixed when building charts
 - use `spoken_response_latency_ms` for recommendation decisions
 - use `provider_first_assistant_delta_ms` to understand where the time is going
 - treat prompt-variant experiments as provider-specific unless the data shows they generalize
+- treat groups with fewer than 3 rows as directional rather than stable

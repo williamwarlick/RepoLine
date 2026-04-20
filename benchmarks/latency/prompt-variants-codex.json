@@ -1,5 +1,7 @@
 {
   "defaults": {
+    "benchmark_family": "prompt_variant",
+    "benchmark_revision": "codex-v1",
     "working_directory": ".",
     "provider": "codex",
     "access_policy": "readonly",

@@ -490,6 +490,51 @@ async def test_gemini_adapter_streams_deltas_and_tool_artifacts() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gemini_adapter_preserves_nested_error_messages() -> None:
+    facade = ProviderStreamFacade()
+    runner = FakeRunner(
+        FakeProcess(
+            [
+                json.dumps(
+                    {
+                        "type": "init",
+                        "session_id": "gemini-session",
+                        "model": "gemini-2.5-flash",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "session_id": "gemini-session",
+                        "status": "error",
+                        "error": {
+                            "type": "Error",
+                            "message": "[API Error: You have exhausted your capacity on this model.]",
+                        },
+                    }
+                ),
+            ],
+            returncode=1,
+        )
+    )
+
+    events = await _collect_events(
+        facade.events(
+            TextStreamConfig(
+                provider="gemini",
+                prompt="Hello",
+            ),
+            runner=runner,
+        )
+    )
+
+    error_events = [event for event in events if event.type == "error"]
+    assert len(error_events) == 1
+    assert error_events[0].message is not None
+    assert "exhausted your capacity" in error_events[0].message
+
+
+@pytest.mark.asyncio
 async def test_stream_text_chunks_raises_when_provider_finishes_without_text() -> None:
     facade = ProviderStreamFacade()
     runner = FakeRunner(FakeProcess([json.dumps({"type": "task_complete"})]))
