@@ -1,0 +1,24 @@
+{
+  "defaults": {
+    "working_directory": ".",
+    "provider": "gemini",
+    "provider_transport": "cli",
+    "model": "gemini-2.5-flash",
+    "access_policy": "readonly",
+    "chunk_chars": 100,
+    "use_repoline_prompt": true,
+    "thinking_level": "low",
+    "timeout_seconds": 45,
+    "prompt_variant": "current_baseline",
+    "report_group": "gemini-smoke"
+  },
+  "scenarios": [
+    {
+      "name": "gemini-smoke-harness-path",
+      "kind": "provider_stream",
+      "latency_archetype": "repo-lookup",
+      "prompt_id": "harness-path-1",
+      "prompt": "Reply with just the path to the RepoLine Python latency harness wrapper script."
+    }
+  ]
+}

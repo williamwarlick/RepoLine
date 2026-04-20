@@ -90,6 +90,21 @@ python3 ./scripts/latency_report.py output/latency/planning-latency-core.jsonl \
   --markdown-out output/latency/planning-latency-core.md
 ```
 
+### Snapshot
+
+![RepoLine latency snapshot](./docs/assets/repoline-latency-snapshot-2026-04-19.svg)
+
+The README snapshot is generated from checked-in local artifacts:
+
+- cross-provider planning smoke: [`output/latency/planning-latency-smoke-postprompt.jsonl`](./output/latency/planning-latency-smoke-postprompt.jsonl) and [`output/latency/planning-latency-smoke-postprompt.md`](./output/latency/planning-latency-smoke-postprompt.md)
+- Cursor runtime comparison: [`output/latency/cursor-app-promotion-runtime-20260419.jsonl`](./output/latency/cursor-app-promotion-runtime-20260419.jsonl) and [`output/latency/cursor-app-promotion-runtime-20260419.md`](./output/latency/cursor-app-promotion-runtime-20260419.md)
+
+Regenerate the SVG with:
+
+```bash
+python3 ./scripts/render_latency_snapshot_svg.py
+```
+
 The core planning harness measures:
 
 - `provider_first_status_ms`
