@@ -36,6 +36,10 @@ _Avoid_: Soft migration, temporary mixed mode
 A provider path removed from both the public product surface and the codebase because it violates the repo's product boundary.
 _Avoid_: Internal baseline, hidden fallback
 
+**Model Promotion**:
+A change to the default or recommended model inside an existing coding agent provider path.
+_Avoid_: New provider, new transport
+
 **Spoken Response Latency**:
 The elapsed time from the finalized user transcript to the first spoken chunk the caller hears.
 _Avoid_: First response
@@ -67,6 +71,18 @@ _Avoid_: Public scorecard only, benchmark theater
 **Diagnostic Turn Record**:
 A richer per-turn evaluation artifact that can include timings, transcript, tool events, artifacts, and other debugging context beyond what belongs in a public scorecard.
 _Avoid_: Public summary row, final published metric
+
+**Browser Companion**:
+The browser-side precision surface paired with a RepoLine voice or phone session for transcript, artifacts, runtime controls, and approval actions.
+_Avoid_: Web app, dashboard, whiteboard
+
+**Live Diagram Artifact**:
+A text-backed browser companion artifact that renders the agent's current diagram revision during a voice session while keeping the source inspectable.
+_Avoid_: Collaborative canvas, freeform whiteboard, diagram editor
+
+**Persistent Artifact Card**:
+A browser companion artifact presentation where later revisions replace the visible content for the same artifact identity instead of creating a new transcript entry.
+_Avoid_: Revision log, duplicate artifact cards
 
 **Normalized Turn Schema**:
 A single canonical evaluation record shape that both public scorecards and deeper diagnostic tools read from.
@@ -143,6 +159,7 @@ _Avoid_: Fixed bridge overhead
 - A **Hard Cutover** removes conflicting public claims immediately instead of carrying a transition period
 - A **Deleted Transport** is removed from docs, support claims, benchmark plans, and code
 - A **Deleted Transport** also disappears from checked-in current-tree artifacts; git history is the archive
+- A **Model Promotion** does not create a new **Coding Agent Path**, but any public default or support claim still requires **Validated Support** for the provider path, transport, model, access policy, and tested date
 - `Gemini CLI` remains a **Coding Agent Path**
 - Internal benchmark/reporting schema should use **Spoken Response Latency** explicitly instead of an overloaded `first_response` field
 - The first useful spoken reply is an **Agent-Owned First Response**
@@ -151,6 +168,10 @@ _Avoid_: Fixed bridge overhead
 - The first shipped evaluation scope is a **Read-Only Planning Eval**
 - The **Evaluation Harness** exists for understanding and improving the system, not only for publishing comparisons
 - The **Evaluation Harness** should keep a **Diagnostic Turn Record** that is deeper than the public scorecard
+- The **Browser Companion** is the preferred precision surface for artifacts, runtime controls, and approval actions during voice sessions
+- A **Live Diagram Artifact** is displayed in the **Browser Companion**
+- A **Live Diagram Artifact** is agent-authored and text-backed; it does not grant repo mutation authority by itself
+- A **Live Diagram Artifact** should use a **Persistent Artifact Card** so live revisions feel like one evolving diagram rather than a transcript spam of repeated cards
 - The **Evaluation Harness** should emit a **Normalized Turn Schema** as the canonical source for both public and diagnostic reporting
 - The schema change is a **Breaking Schema Cutover**
 - The same **Normalized Turn Schema** should carry both **End-to-End Voice Latency** and **Provider Latency**
@@ -188,12 +209,15 @@ _Avoid_: Fixed bridge overhead
 - "supported" was being used to mean both code presence and real product readiness — resolved: public support requires **Validated Support** with checked-in evidence and a tested date.
 - "supported but not revalidated" was being described informally — resolved: keep those paths in the matrix as **Stale Support**. `Claude Code` currently falls into that bucket.
 - "delete it" was ambiguous between stopping new references and removing existing artifacts — resolved: a **Deleted Transport** is removed from the current tree entirely, with git history serving as the archive.
+- "add Cursor 2.5" could mean a new provider path or a model upgrade — resolved: Composer 2.5 is a **Model Promotion** on the existing Cursor provider path until a transport changes.
 - "recently validated" was undefined — resolved: **Validated Support** has a 90-day freshness window.
 - "fast acknowledgment" was ambiguous about who owns it — resolved: the first reply should be an **Agent-Owned First Response**, not a RepoLine-generated fast ack.
 - "latency priority" was shifting between instant reply and thoughtful planning — resolved: RepoLine is currently a **Planning-First Session**, and the **Acceptable First Reply Window** is roughly 10 seconds for those turns.
 - "first eval scope" was ambiguous between planning work and code edits — resolved: the initial slice is a **Read-Only Planning Eval** because it is easier, not because mutation is out of scope forever.
 - "eval harness" was being treated as just a public benchmark — resolved: the **Evaluation Harness** is also an internal understanding and improvement tool.
 - "eval artifact" was being treated as one thing — resolved: keep a simple public scorecard plus a richer **Diagnostic Turn Record** for investigation and improvement.
+- "real-time diagram" was ambiguous between a **Live Diagram Artifact** and a freeform collaborative canvas — resolved: the first slice is an agent-authored text-backed artifact, not direct shape editing.
+- "live update" was ambiguous between appending every diagram revision and replacing the current view — resolved: use a **Persistent Artifact Card** keyed by stable artifact identity.
 - "harness output" could have split into quick patches and multiple shapes — resolved: use one **Normalized Turn Schema** for both public and diagnostic consumers.
 - "schema migration" could have kept the old latency fields alive — resolved: do a **Breaking Schema Cutover** with no backward-compat layer.
 - "two clocks" sounded like two separate systems — resolved: keep one harness and one schema, but record both **End-to-End Voice Latency** and **Provider Latency**.

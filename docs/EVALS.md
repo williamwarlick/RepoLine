@@ -126,3 +126,17 @@ bun run benchmark:report output/latency/prompt-variants-codex.jsonl \
 - use `provider_first_assistant_delta_ms` to understand where the time is going
 - treat prompt-variant experiments as provider-specific unless the data shows they generalize
 - treat groups with fewer than 3 rows as directional rather than stable
+
+## Model Promotion Evidence
+
+A provider model promotion, such as moving Cursor from `composer-2-fast` to `composer-2.5-fast`, is not validated by changing defaults alone. The evidence must identify the provider path, transport, model, access policy, Cursor CLI or app build, and tested date.
+
+Minimum promotion evidence:
+
+- local model availability output, such as `cursor-agent models`
+- one read-only headless smoke run for the promoted model
+- provider adapter tests for any new stream shape
+- setup/runtime tests proving default materialization
+- benchmark rows with at least three successful turns for each promoted provider path before comparing latency
+
+Keep old and new model rows separate. Do not average model promotion data with prior default-model artifacts.

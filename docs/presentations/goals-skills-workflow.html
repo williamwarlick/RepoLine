@@ -1,0 +1,993 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>From Saved Ideas to Repo Goals</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1f2528;
+        --muted: #5c666b;
+        --paper: #fbfaf5;
+        --panel: #ffffff;
+        --line: #d9d4c8;
+        --green: #0f766e;
+        --red: #b83a2f;
+        --amber: #a15c00;
+        --blue: #295c9b;
+        --violet: #7554a6;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--paper);
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .deck {
+        min-height: 100vh;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .slide {
+        display: none;
+        min-height: 100vh;
+        padding: clamp(28px, 5vw, 72px);
+      }
+
+      .slide.active {
+        display: grid;
+      }
+
+      .content {
+        width: min(1180px, 100%);
+        margin: 0 auto;
+        align-self: center;
+      }
+
+      .kicker {
+        margin: 0 0 14px;
+        color: var(--green);
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 940px;
+        margin-bottom: 24px;
+        font-size: clamp(3rem, 7vw, 6.8rem);
+        line-height: 0.95;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        max-width: 980px;
+        margin-bottom: 28px;
+        font-size: clamp(2.2rem, 5vw, 4.9rem);
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      h3 {
+        margin-bottom: 10px;
+        font-size: clamp(1.12rem, 2vw, 1.55rem);
+        line-height: 1.2;
+      }
+
+      p,
+      li {
+        font-size: clamp(1rem, 1.7vw, 1.3rem);
+        line-height: 1.48;
+      }
+
+      .lead {
+        max-width: 790px;
+        color: var(--muted);
+        font-size: clamp(1.2rem, 2.1vw, 1.65rem);
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.95fr);
+        gap: clamp(28px, 5vw, 72px);
+        align-items: center;
+      }
+
+      .hero-asset {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #efe9db;
+        box-shadow: 0 16px 42px rgba(31, 37, 40, 0.12);
+      }
+
+      .hero-asset img {
+        display: block;
+        width: 100%;
+        border-radius: 8px;
+      }
+
+      .tag-row,
+      .source-row,
+      .command-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .tag {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 0.88rem;
+        font-weight: 700;
+      }
+
+      .grid {
+        display: grid;
+        gap: 18px;
+      }
+
+      .grid.two {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .card,
+      .quote-card,
+      .repo-card,
+      .step-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: clamp(18px, 2.4vw, 28px);
+      }
+
+      .quote-card {
+        min-height: 210px;
+      }
+
+      .quote-card .source {
+        color: var(--muted);
+        font-size: 0.92rem;
+        font-weight: 800;
+      }
+
+      .quote-card .snippet {
+        margin: 14px 0 18px;
+        font-size: clamp(1.08rem, 1.8vw, 1.42rem);
+        line-height: 1.35;
+      }
+
+      .accent-green {
+        border-top: 5px solid var(--green);
+      }
+
+      .accent-red {
+        border-top: 5px solid var(--red);
+      }
+
+      .accent-amber {
+        border-top: 5px solid var(--amber);
+      }
+
+      .accent-blue {
+        border-top: 5px solid var(--blue);
+      }
+
+      .accent-violet {
+        border-top: 5px solid var(--violet);
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 12px;
+        align-items: stretch;
+      }
+
+      .flow-node {
+        min-height: 170px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .flow-node strong {
+        display: block;
+        font-size: clamp(1.05rem, 1.7vw, 1.38rem);
+      }
+
+      .flow-node span {
+        color: var(--muted);
+        font-size: 0.98rem;
+        line-height: 1.42;
+      }
+
+      .number {
+        display: inline-grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        background: var(--ink);
+        color: #fff;
+        font-weight: 800;
+      }
+
+      pre {
+        overflow-x: auto;
+        margin: 0;
+        border: 1px solid #282f32;
+        border-radius: 8px;
+        padding: clamp(16px, 2.4vw, 26px);
+        background: #15191b;
+        color: #f4f1e9;
+        font-size: clamp(0.82rem, 1.25vw, 1rem);
+        line-height: 1.48;
+      }
+
+      code {
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      }
+
+      .command {
+        display: inline-flex;
+        align-items: center;
+        min-height: 42px;
+        border: 1px solid #2d3437;
+        border-radius: 8px;
+        padding: 10px 14px;
+        background: #15191b;
+        color: #f4f1e9;
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 0.95rem;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(300px, 0.85fr);
+        gap: clamp(20px, 4vw, 48px);
+        align-items: start;
+      }
+
+      .repo-card ul,
+      .step-card ul,
+      .card ul {
+        margin: 14px 0 0;
+        padding-left: 20px;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 14px;
+      }
+
+      .timeline-item {
+        display: grid;
+        grid-template-columns: 56px minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
+      }
+
+      .timeline-item .dot {
+        display: grid;
+        place-items: center;
+        width: 48px;
+        height: 48px;
+        border: 2px solid var(--ink);
+        border-radius: 999px;
+        font-weight: 900;
+        background: var(--paper);
+      }
+
+      .metric-strip {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 26px;
+      }
+
+      .metric {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 18px;
+        background: #f2efe7;
+      }
+
+      .metric strong {
+        display: block;
+        font-size: clamp(1.8rem, 4vw, 3.2rem);
+        line-height: 1;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .diagram-demo {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background:
+          linear-gradient(rgba(41, 92, 155, 0.07) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(41, 92, 155, 0.07) 1px, transparent 1px),
+          #ffffff;
+        background-size: 28px 28px;
+        padding: 20px;
+      }
+
+      .diagram-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .diagram-toolbar strong {
+        font-size: 1rem;
+      }
+
+      .live-pill {
+        border: 1px solid rgba(15, 118, 110, 0.35);
+        border-radius: 999px;
+        padding: 7px 11px;
+        background: rgba(15, 118, 110, 0.09);
+        color: var(--green);
+        font-size: 0.78rem;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .diagram-stage {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr);
+        grid-template-rows: repeat(3, minmax(72px, auto));
+        gap: 14px;
+        align-items: center;
+      }
+
+      .diagram-node {
+        border: 2px solid var(--ink);
+        border-radius: 8px;
+        padding: 14px;
+        background: var(--paper);
+        box-shadow: 5px 5px 0 rgba(31, 37, 40, 0.13);
+      }
+
+      .diagram-node strong,
+      .diagram-node span {
+        display: block;
+      }
+
+      .diagram-node span {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.3;
+      }
+
+      .diagram-edge {
+        height: 3px;
+        background: var(--green);
+        position: relative;
+      }
+
+      .diagram-edge::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        right: -2px;
+        width: 10px;
+        height: 10px;
+        border-top: 3px solid var(--green);
+        border-right: 3px solid var(--green);
+        transform: translateY(-50%) rotate(45deg);
+      }
+
+      .agent-note {
+        grid-column: 1 / -1;
+        border-left: 5px solid var(--green);
+        border-radius: 8px;
+        padding: 14px 16px;
+        background: rgba(15, 118, 110, 0.08);
+        color: var(--ink);
+      }
+
+      .agent-note code {
+        color: var(--green);
+        font-weight: 800;
+      }
+
+      .nav {
+        position: fixed;
+        right: clamp(16px, 3vw, 34px);
+        bottom: clamp(16px, 3vw, 28px);
+        z-index: 10;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .nav button {
+        min-width: 52px;
+        min-height: 44px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--ink);
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      .nav button:hover {
+        border-color: var(--ink);
+      }
+
+      .counter {
+        min-width: 70px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 11px 12px;
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--muted);
+        text-align: center;
+        font-size: 0.9rem;
+        font-weight: 800;
+      }
+
+      .progress {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 5px;
+        background: #e4ded1;
+        z-index: 11;
+      }
+
+      .progress span {
+        display: block;
+        width: 0;
+        height: 100%;
+        background: var(--green);
+        transition: width 180ms ease;
+      }
+
+      .small {
+        color: var(--muted);
+        font-size: clamp(0.92rem, 1.4vw, 1.05rem);
+      }
+
+      .closing {
+        max-width: 900px;
+      }
+
+      @media (max-width: 900px) {
+        .hero-grid,
+        .grid.two,
+        .grid.three,
+        .flow,
+        .split,
+        .metric-strip,
+        .diagram-stage {
+          grid-template-columns: 1fr;
+        }
+
+        .slide {
+          min-height: auto;
+          padding-bottom: 96px;
+        }
+
+        .flow-node {
+          min-height: 128px;
+        }
+      }
+
+      @media print {
+        .deck,
+        .slide {
+          display: block;
+          min-height: auto;
+          overflow: visible;
+        }
+
+        .slide {
+          break-after: page;
+        }
+
+        .nav,
+        .progress {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="deck" aria-live="polite">
+      <section class="slide active" data-title="Title">
+        <div class="content hero-grid">
+          <div>
+            <p class="kicker">Workflow showoff</p>
+            <h1>From Saved Ideas to Repo Goals</h1>
+            <p class="lead">
+              A practical demo of turning scattered agent-coding ideas into a
+              repo-owned improvement loop: goals, skills, issues, code, and
+              verification.
+            </p>
+            <div class="tag-row">
+              <span class="tag">Codex /goal</span>
+              <span class="tag">Matt Pocock skills</span>
+              <span class="tag">RepoLine</span>
+              <span class="tag">Live diagram</span>
+            </div>
+          </div>
+          <figure class="hero-asset">
+            <img src="../assets/repoline-readme-banner.png" alt="RepoLine banner" />
+          </figure>
+        </div>
+      </section>
+
+      <section class="slide" data-title="Hook">
+        <div class="content">
+          <p class="kicker">The hook</p>
+          <h2>The workflow starts where your taste already lives.</h2>
+          <p class="lead">
+            Use saved posts as a signal, not as a content backlog. The useful
+            pattern is to pull out the operating principle and bind it to a
+            real repo.
+          </p>
+          <div class="grid three">
+            <article class="quote-card accent-green">
+              <div class="source">Liked: @jxnlco</div>
+              <p class="snippet">Prompt the model to set its own goal.</p>
+              <a class="small" href="https://x.com/jxnlco/status/2053693587314106398">Open source post</a>
+            </article>
+            <article class="quote-card accent-blue">
+              <div class="source">Liked: @kloss_xyz</div>
+              <p class="snippet">A strong goal names context, constraints, done-when, verify, output, and stop rules.</p>
+              <a class="small" href="https://x.com/kloss_xyz/status/2054096165055217987">Open source post</a>
+            </article>
+            <article class="quote-card accent-red">
+              <div class="source">Bookmarked: @fchollet</div>
+              <p class="snippet">Agentic coding behaves like optimization guided by goals, constraints, specs, and tests.</p>
+              <a class="small" href="https://x.com/fchollet/status/2024519439140737442">Open source post</a>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide" data-title="Operating Model">
+        <div class="content">
+          <p class="kicker">Operating model</p>
+          <h2>Goals decide the mission. Skills decide the move.</h2>
+          <div class="flow">
+            <div class="flow-node accent-green">
+              <strong>Intent</strong>
+              <span>Start with a rough improvement request, not a perfect spec.</span>
+              <span class="number">1</span>
+            </div>
+            <div class="flow-node accent-blue">
+              <strong>/goal</strong>
+              <span>Let Codex turn the intent into outcome, constraints, done-when, and verify.</span>
+              <span class="number">2</span>
+            </div>
+            <div class="flow-node accent-violet">
+              <strong>Repo context</strong>
+              <span>AGENTS.md, goals, repo map, tests, and domain docs bound the search space.</span>
+              <span class="number">3</span>
+            </div>
+            <div class="flow-node accent-amber">
+              <strong>Skill</strong>
+              <span>Invoke a specialized Matt skill for interrogation, issues, TDD, diagnosis, or architecture.</span>
+              <span class="number">4</span>
+            </div>
+            <div class="flow-node accent-red">
+              <strong>Gate</strong>
+              <span>Finish with the repo-owned command that proves the change is ready.</span>
+              <span class="number">5</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide" data-title="RepoLine">
+        <div class="content split">
+          <div>
+            <p class="kicker">Why RepoLine works as the demo</p>
+            <h2>It already has the self-building surface.</h2>
+            <p class="lead">
+              RepoLine is strong because future agents do not need to rediscover
+              the operating model. The repo tells them where to look and how to
+              prove work.
+            </p>
+          </div>
+          <div class="repo-card accent-green">
+            <h3>Repo-owned context</h3>
+            <ul>
+              <li><code>AGENTS.md</code> gives the root contract.</li>
+              <li><code>docs/agents/goals.md</code> keeps the improvement queue.</li>
+              <li><code>docs/agents/repo-map.md</code> maps the runtime.</li>
+              <li><code>docs/agents/testing.md</code> names the verification gate.</li>
+              <li><code>CONTEXT.md</code> captures domain language.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide" data-title="Feature">
+        <div class="content split">
+          <div>
+            <p class="kicker">Concrete feature example</p>
+            <h2>Add a live diagram the agent can modify while we talk.</h2>
+            <div class="grid">
+              <article class="step-card accent-blue">
+                <h3>Rough human request</h3>
+                <p>
+                  "While I am explaining an architecture or workflow over
+                  voice, let the agent keep a diagram updated in the browser
+                  companion so we can see whether the shape is right."
+                </p>
+              </article>
+              <article class="step-card accent-amber">
+                <h3>RepoLine already has the surface</h3>
+                <p>
+                  The browser UI already receives RepoLine artifacts over a
+                  LiveKit text stream. The feature is a new diagram artifact
+                  path, not a whole new product.
+                </p>
+              </article>
+            </div>
+          </div>
+          <aside class="diagram-demo" aria-label="Live diagram mockup">
+            <div class="diagram-toolbar">
+              <strong>Voice Session Diagram</strong>
+              <span class="live-pill">Live update</span>
+            </div>
+            <div class="diagram-stage">
+              <div class="diagram-node">
+                <strong>Voice turn</strong>
+                <span>User describes the workflow.</span>
+              </div>
+              <div class="diagram-edge" aria-hidden="true"></div>
+              <div class="diagram-node">
+                <strong>Agent edit</strong>
+                <span>Updates text diagram source.</span>
+              </div>
+              <div class="agent-note">
+                Agent says: "I moved verification after the browser artifact
+                because <code>bin/check quick</code> should close the loop."
+              </div>
+              <div class="diagram-node">
+                <strong>Browser artifact</strong>
+                <span>Rendered diagram and source stay visible.</span>
+              </div>
+              <div class="diagram-edge" aria-hidden="true"></div>
+              <div class="diagram-node">
+                <strong>Approval</strong>
+                <span>User approves the next repo mutation.</span>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="slide" data-title="Question">
+        <div class="content">
+          <p class="kicker">One clarifying question</p>
+          <h2>Ask the question that changes the implementation.</h2>
+          <div class="grid two">
+            <article class="card accent-red">
+              <h3>The question</h3>
+              <p>
+                Should the first version be text-first diagrams, like Mermaid,
+                or a freeform whiteboard canvas?
+              </p>
+            </article>
+            <article class="card accent-green">
+              <h3>Recommended answer</h3>
+              <p>
+                Start Mermaid-first. It is diffable, agent-editable, testable,
+                and can flow through RepoLine's existing artifact model.
+              </p>
+            </article>
+            <article class="card accent-blue">
+              <h3>Why not canvas first</h3>
+              <p>
+                A freeform canvas creates harder state, selection, and conflict
+                problems before we have proven the live artifact loop.
+              </p>
+            </article>
+            <article class="card accent-amber">
+              <h3>Decision rule</h3>
+              <p>
+                If the user needs sketch freedom, make it a later feature. If
+                the user needs shared architecture thinking, text diagrams win.
+              </p>
+            </article>
+          </div>
+          <div class="metric-strip">
+            <div class="metric">
+              <strong>1</strong>
+              <span>diagram artifact kind</span>
+            </div>
+            <div class="metric">
+              <strong>2</strong>
+              <span>views: render and source</span>
+            </div>
+            <div class="metric">
+              <strong>1</strong>
+              <span>voice-session proof path</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide" data-title="Goal Prompt">
+        <div class="content">
+          <p class="kicker">Live demo prompt</p>
+          <h2>Let the model produce the goal before it writes code.</h2>
+          <pre><code>/goal Read RepoLine's AGENTS.md, docs/agents/goals.md,
+docs/agents/repo-map.md, docs/agents/testing.md,
+docs/HOW-IT-WORKS.md, docs/VOICE-FIRST-BUILD-SPEC.md,
+frontend/lib/repoline-artifacts.ts, and CONTEXT.md.
+
+Set the best implementation goal for adding a live diagram artifact
+that the agent can update during a voice session.
+Do not implement first.
+
+Output:
+- goal
+- context
+- one clarifying question only if it changes the implementation
+- constraints
+- done when
+- verify
+- stop rules
+- best next Matt Pocock skill to invoke</code></pre>
+        </div>
+      </section>
+
+      <section class="slide" data-title="Generated Goal">
+        <div class="content">
+          <p class="kicker">What a good generated goal looks like</p>
+          <h2>The goal should be narrow enough to ship.</h2>
+          <div class="grid two">
+            <article class="card accent-green">
+              <h3>Goal</h3>
+              <p>
+                Add a Mermaid-first diagram artifact path so the agent can
+                publish and replace a rendered diagram in the browser companion
+                during a live voice session.
+              </p>
+            </article>
+            <article class="card accent-red">
+              <h3>Constraints</h3>
+              <ul>
+                <li>No freeform canvas in the first slice.</li>
+                <li>Use text source that is diffable and agent-editable.</li>
+                <li>Do not execute repo mutations from the diagram itself.</li>
+                <li>Sanitize rendered diagram output before showing it.</li>
+              </ul>
+            </article>
+            <article class="card accent-blue">
+              <h3>Done when</h3>
+              <ul>
+                <li><code>diagram</code> artifacts parse from the LiveKit text stream.</li>
+                <li>The browser shows rendered diagram plus source.</li>
+                <li>A fake session can prove live replacement behavior.</li>
+              </ul>
+            </article>
+            <article class="card accent-amber">
+              <h3>Verify</h3>
+              <div class="command-row">
+                <span class="command">bin/check frontend</span>
+                <span class="command">bin/check quick</span>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide" data-title="Skills">
+        <div class="content">
+          <p class="kicker">Matt skills as the workbench</p>
+          <h2>Pick the skill that matches the next move.</h2>
+          <div class="timeline">
+            <div class="timeline-item">
+              <div class="dot">A</div>
+              <article class="card accent-violet">
+                <h3><code>$grill-with-docs</code></h3>
+                <p>
+                  Stress-test the goal against RepoLine's domain language:
+                  browser companion, artifacts, voice-session state, approval
+                  checkpoints, and mutation boundaries.
+                </p>
+              </article>
+            </div>
+            <div class="timeline-item">
+              <div class="dot">B</div>
+              <article class="card accent-blue">
+                <h3><code>$to-issues</code></h3>
+                <p>
+                  Turn the goal into independently grabbable slices: artifact
+                  type, renderer, live replacement state, docs, and browser
+                  verification.
+                </p>
+              </article>
+            </div>
+            <div class="timeline-item">
+              <div class="dot">C</div>
+              <article class="card accent-green">
+                <h3><code>$tdd</code> or <code>$diagnose</code></h3>
+                <p>
+                  Build parser and state behavior test-first, or diagnose
+                  stream/update failures against the existing artifact path.
+                </p>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide" data-title="Issues">
+        <div class="content">
+          <p class="kicker">AFK-ready issue shape</p>
+          <h2>The issue carries the goal, context, and proof.</h2>
+          <pre><code>Title: Add live Mermaid diagram artifacts to RepoLine sessions
+
+Context:
+- docs/HOW-IT-WORKS.md browser artifact surface
+- docs/VOICE-FIRST-BUILD-SPEC.md browser companion and approvals
+- frontend/lib/repoline-artifacts.ts current artifact model
+- frontend/hooks/useRepolineArtifacts.ts stream ingestion
+
+Task:
+- add a `diagram` artifact kind with `language=mermaid`
+- render latest diagram artifact in the browser companion
+- keep source visible so the agent's changes are inspectable
+- add tests for parser, sorting, replacement, and bad input
+- document the voice-session behavior and non-goals
+
+Verification:
+- bin/check frontend
+- bin/check quick</code></pre>
+        </div>
+      </section>
+
+      <section class="slide" data-title="Loop">
+        <div class="content">
+          <p class="kicker">Why this is more than prompting</p>
+          <h2>It creates a repeatable improvement loop.</h2>
+          <div class="grid three">
+            <article class="card accent-green">
+              <h3>Detect</h3>
+              <p>A voice-session need reveals a missing browser artifact type.</p>
+            </article>
+            <article class="card accent-blue">
+              <h3>Diagnose</h3>
+              <p>Skills interrogate artifact flow, session state, and approval boundaries.</p>
+            </article>
+            <article class="card accent-amber">
+              <h3>Fix</h3>
+              <p>The coding agent lands the smallest Mermaid-first live diagram slice.</p>
+            </article>
+            <article class="card accent-violet">
+              <h3>Verify</h3>
+              <p>Frontend and full handoff gates prove the touched surface still works.</p>
+            </article>
+            <article class="card accent-red">
+              <h3>Learn</h3>
+              <p>Docs, tests, and issue history record why canvas was deferred.</p>
+            </article>
+            <article class="card accent-green">
+              <h3>Repeat</h3>
+              <p>The next visual feature starts from a stronger artifact baseline.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="slide" data-title="Script">
+        <div class="content">
+          <p class="kicker">Talk track</p>
+          <h2>Thirty-second close</h2>
+          <div class="closing">
+            <p class="lead">
+              "My workflow is not just asking an agent to code. I capture good
+              operating ideas, ask Codex to turn rough intent into a real goal,
+              use Matt Pocock skills for the right kind of thinking, and make
+              the repo carry the context and verification. RepoLine is the
+              example: the live diagram feature starts as a goal, becomes
+              AFK-ready work, and ends at <code>bin/check quick</code>."
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <nav class="nav" aria-label="Slide navigation">
+      <button type="button" id="prev" aria-label="Previous slide">Prev</button>
+      <div class="counter" id="counter">1 / 10</div>
+      <button type="button" id="next" aria-label="Next slide">Next</button>
+    </nav>
+    <div class="progress" aria-hidden="true"><span id="progress"></span></div>
+
+    <script>
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      const counter = document.querySelector("#counter");
+      const progress = document.querySelector("#progress");
+      const prev = document.querySelector("#prev");
+      const next = document.querySelector("#next");
+      let index = 0;
+
+      function show(nextIndex) {
+        index = Math.max(0, Math.min(slides.length - 1, nextIndex));
+        slides.forEach((slide, slideIndex) => {
+          slide.classList.toggle("active", slideIndex === index);
+        });
+        counter.textContent = `${index + 1} / ${slides.length}`;
+        progress.style.width = `${((index + 1) / slides.length) * 100}%`;
+        document.title = `${slides[index].dataset.title} - From Saved Ideas to Repo Goals`;
+      }
+
+      prev.addEventListener("click", () => show(index - 1));
+      next.addEventListener("click", () => show(index + 1));
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
+          event.preventDefault();
+          show(index + 1);
+        }
+        if (event.key === "ArrowLeft" || event.key === "PageUp") {
+          event.preventDefault();
+          show(index - 1);
+        }
+        if (event.key === "Home") {
+          event.preventDefault();
+          show(0);
+        }
+        if (event.key === "End") {
+          event.preventDefault();
+          show(slides.length - 1);
+        }
+      });
+
+      show(0);
+    </script>
+  </body>
+</html>
