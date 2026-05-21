@@ -41,8 +41,17 @@ async function signPayload(payload: string, secret: string): Promise<string> {
 }
 
 async function verifyPayload(payload: string, signature: string, secret: string): Promise<boolean> {
-  const key = await importAccessKey(secret, ['verify']);
-  return crypto.subtle.verify('HMAC', key, decodeBase64Url(signature), textEncoder.encode(payload));
+  try {
+    const key = await importAccessKey(secret, ['verify']);
+    return await crypto.subtle.verify(
+      'HMAC',
+      key,
+      decodeBase64Url(signature),
+      textEncoder.encode(payload)
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function isAccessProtectionEnabled(env: NodeJS.ProcessEnv = process.env): boolean {

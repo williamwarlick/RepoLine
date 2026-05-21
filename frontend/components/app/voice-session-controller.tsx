@@ -23,23 +23,28 @@ type VoiceSessionControllerValue = {
 const VoiceSessionControllerContext = createContext<VoiceSessionControllerValue | null>(null);
 
 export function VoiceSessionControllerProvider({ children }: PropsWithChildren) {
-  const { isConnected, start, end } = useSessionContext();
+  const session = useSessionContext();
+  const { isConnected, start, end, room } = session;
   const { runtimeState, latestControlResult, isUpdatingRuntimeModel, setRuntimeModel } =
     useRepolineSessionRuntime();
+
+  async function startCall() {
+    await start({
+      tracks: {
+        microphone: {
+          enabled: false,
+        },
+      },
+    });
+
+    await room.localParticipant.setMicrophoneEnabled(true, undefined, PRECONNECT_MIC_OPTIONS);
+  }
 
   return (
     <VoiceSessionControllerContext.Provider
       value={{
         isConnected,
-        startCall: () =>
-          start({
-            tracks: {
-              microphone: {
-                enabled: true,
-                publishOptions: PRECONNECT_MIC_OPTIONS,
-              },
-            },
-          }),
+        startCall,
         endCall: () => {
           end();
         },
