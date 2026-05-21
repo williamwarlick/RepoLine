@@ -142,7 +142,7 @@ def test_bridge_config_load_defaults_cursor_model_to_composer_2_fast(
     )
 
     assert config.model == "composer-2-fast"
-    assert config.provider_transport == "cli"
+    assert config.provider_transport == "app"
     assert config.chunk_chars == 80
     assert config.final_transcript_debounce_seconds == 0.35
     assert config.short_transcript_debounce_seconds == 0.55
@@ -225,7 +225,7 @@ def test_render_call_greeting_preserves_custom_greeting(tmp_path: Path) -> None:
 
     assert (
         render_call_greeting(config)
-        == "You're talking with composer 2 fast through Cursor Agent. "
+        == "You're talking with composer 2 fast through Cursor App. "
         "Tell me what you want to change."
     )
 

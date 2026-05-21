@@ -18,9 +18,11 @@ from cursor_app_submit import (
 from cursor_app_tap import (
     CursorBubbleUpdate,
     CursorComposerTail,
+    CursorAppTapError,
     find_active_composer_id,
     load_bubbles,
     load_composer_data,
+    update_cursor_runtime_model,
 )
 
 from .common import (
@@ -116,6 +118,7 @@ class CursorAppTransport:
         tail_factory: Callable[[str], CursorComposerTailProtocol] | None = None,
         bubble_loader: Callable[[str], list[Any]] = load_bubbles,
         composer_loader: Callable[[str], dict[str, Any]] = load_composer_data,
+        model_updater: Callable[[str | Path, str], list[str]] | None = None,
         poll_interval_seconds: float = APP_STREAM_POLL_INTERVAL_SECONDS,
         settle_delay_seconds: float = APP_SETTLE_DELAY_SECONDS,
         response_timeout_seconds: float = APP_RESPONSE_TIMEOUT_SECONDS,
@@ -125,6 +128,12 @@ class CursorAppTransport:
         self._tail_factory = tail_factory or (lambda composer_id: CursorComposerTail(composer_id))
         self._bubble_loader = bubble_loader
         self._composer_loader = composer_loader
+        self._model_updater = model_updater or (
+            lambda workspace_root, model: update_cursor_runtime_model(
+                workspace_root,
+                model=model,
+            )
+        )
         self._poll_interval_seconds = poll_interval_seconds
         self._settle_delay_seconds = settle_delay_seconds
         self._response_timeout_seconds = response_timeout_seconds
@@ -148,6 +157,12 @@ class CursorAppTransport:
             message=f"Starting {provider_name} stream.",
             session_id=requested_composer_id,
         )
+
+        if config.model:
+            try:
+                self._model_updater(workspace_root, config.model)
+            except CursorAppTapError as exc:
+                raise TextStreamError(str(exc)) from exc
 
         try:
             submit_result = await self._submitter.submit(
@@ -327,7 +342,7 @@ def _seed_bubbles_before_submitted_response(
         if getattr(bubble, "role", None) != "user":
             continue
         bubble_text = str(getattr(bubble, "text", "") or "").strip()
-        if bubble_text == normalized_prompt:
+        if bubble_text == normalized_prompt or normalized_prompt in bubble_text:
             last_matching_user_index = index
 
     if last_matching_user_index is None:

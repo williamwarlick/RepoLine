@@ -13,6 +13,14 @@ const FOLLOWUP_OPEN_DELAY_MS = 45;
 const PASTE_DELAY_MS = 25;
 const SEND_DELAY_MS = 90;
 const OPEN_SEND_DELAY_MS = 140;
+const UNSAFE_UI_COMMANDS = new Set([
+  "composer.exportChatAsMd",
+  "developer.bulkImportChats",
+  "developer.exportChat",
+  "developer.importChat",
+  "glass.exportChat",
+  "glass.importChat",
+]);
 
 let outputChannel;
 
@@ -179,6 +187,26 @@ async function handleSocketRequest(socket, line, workspacePath) {
       result = await submitViaTestOpenDetachedAndSend({
         workspacePath,
         prompt: String(request.prompt || ""),
+      });
+      break;
+    case "inspectComposerHandle":
+      result = await inspectComposerHandle({
+        composerId:
+          typeof request.composerId === "string" && request.composerId.trim()
+            ? request.composerId.trim()
+            : undefined,
+      });
+      break;
+    case "setComposerModel":
+      result = await setComposerModel({
+        composerId:
+          typeof request.composerId === "string" && request.composerId.trim()
+            ? request.composerId.trim()
+            : undefined,
+        model:
+          typeof request.model === "string" && request.model.trim()
+            ? request.model.trim()
+            : undefined,
       });
       break;
     default:
@@ -461,16 +489,9 @@ async function probeComposerHandle(composerId) {
       "composer.getComposerHandleById",
       composerId
     );
-    const ownKeys =
-      handle && typeof handle === "object"
-        ? Reflect.ownKeys(handle).map((key) => String(key))
-        : [];
     return {
       ok: true,
-      type: typeof handle,
-      ownKeys,
-      hasSubmitMessage:
-        !!handle && typeof handle.submitMessage === "function",
+      ...describeComposerHandle(handle),
     };
   } catch (error) {
     return {
@@ -478,6 +499,106 @@ async function probeComposerHandle(composerId) {
       error: toErrorPayload(error),
     };
   }
+}
+
+async function inspectComposerHandle({ composerId }) {
+  const resolvedComposerId =
+    composerId ||
+    firstSelectedComposerId(
+      await safeExecuteCommand("composer.getOrderedSelectedComposerIds")
+    );
+  if (!resolvedComposerId) {
+    throw new Error("Cursor bridge could not determine a selected composer ID.");
+  }
+
+  const handle = await vscode.commands.executeCommand(
+    "composer.getComposerHandleById",
+    resolvedComposerId
+  );
+  const description = describeComposerHandle(handle);
+  const data =
+    handle && typeof handle === "object" ? sanitizeForJson(handle.data) : null;
+
+  return {
+    composerId: resolvedComposerId,
+    ...description,
+    data,
+  };
+}
+
+async function setComposerModel({ composerId, model }) {
+  const normalizedModel = String(model || "").trim();
+  if (!normalizedModel) {
+    throw new Error("Model is required.");
+  }
+
+  const resolvedComposerId =
+    composerId ||
+    firstSelectedComposerId(
+      await safeExecuteCommand("composer.getOrderedSelectedComposerIds")
+    );
+  if (!resolvedComposerId) {
+    throw new Error("Cursor bridge could not determine a selected composer ID.");
+  }
+
+  const handle = await vscode.commands.executeCommand(
+    "composer.getComposerHandleById",
+    resolvedComposerId
+  );
+  if (!handle || (typeof handle !== "object" && typeof handle !== "function")) {
+    throw new Error("Cursor bridge could not load the active composer handle.");
+  }
+  if (typeof handle.setData !== "function") {
+    throw new Error(
+      "Cursor bridge could not update the active composer model on this build."
+    );
+  }
+
+  const nextConfig = buildComposerModelConfig({
+    existingConfig: handle.data?.modelConfig,
+    model: normalizedModel,
+  });
+
+  handle.setData("modelConfig", nextConfig);
+
+  return {
+    composerId: resolvedComposerId,
+    model: normalizedModel,
+    modelConfig: sanitizeForJson(handle.data?.modelConfig ?? nextConfig),
+  };
+}
+
+function describeComposerHandle(handle) {
+  const type = typeof handle;
+  const canReflect = !!handle && (type === "object" || type === "function");
+  const prototype = canReflect ? Object.getPrototypeOf(handle) : null;
+  const ownKeys = canReflect
+    ? Reflect.ownKeys(handle).map((key) => String(key)).sort()
+    : [];
+  const prototypeKeys = prototype
+    ? Object.getOwnPropertyNames(prototype).sort()
+    : [];
+  const ownCallableKeys = canReflect
+    ? ownKeys.filter((key) => typeof handle[key] === "function")
+    : [];
+  const prototypeCallableKeys =
+    prototype && canReflect
+      ? prototypeKeys.filter((key) => typeof prototype[key] === "function")
+      : [];
+
+  return {
+    isTruthy: !!handle,
+    type,
+    stringTag: Object.prototype.toString.call(handle),
+    ownKeys,
+    prototypeKeys,
+    ownCallableKeys,
+    prototypeCallableKeys,
+    hasSubmitMessage:
+      !!handle && typeof handle.submitMessage === "function",
+    hasSetData: !!handle && typeof handle.setData === "function",
+    hasGetData: !!handle && typeof handle.getData === "function",
+  };
 }
 
 async function safeExecuteCommand(command, ...args) {
@@ -494,6 +615,11 @@ async function executeBridgeCommand(request) {
   const command = String(request.command || "").trim();
   if (!command) {
     throw new Error("Command name is required.");
+  }
+  if (UNSAFE_UI_COMMANDS.has(command)) {
+    throw new Error(
+      `Refusing to run Cursor command '${command}' because it opens a native dialog.`
+    );
   }
 
   const args = Array.isArray(request.args) ? request.args : [];
@@ -564,6 +690,49 @@ function sanitizeForJson(value) {
     return Object.fromEntries(entries);
   }
   return String(value);
+}
+
+function firstSelectedComposerId(selectedComposerIds) {
+  return Array.isArray(selectedComposerIds)
+    ? selectedComposerIds.find(
+        (composerId) =>
+          typeof composerId === "string" && composerId.trim().length > 0
+      )
+    : undefined;
+}
+
+function buildComposerModelConfig({ existingConfig, model }) {
+  const baseConfig =
+    existingConfig && typeof existingConfig === "object" ? existingConfig : {};
+
+  switch (model) {
+    case "composer-2-fast":
+      return {
+        ...baseConfig,
+        modelName: "composer-2",
+        maxMode: false,
+        selectedModels: [
+          {
+            modelId: "composer-2",
+            parameters: [{ id: "fast", value: "true" }],
+          },
+        ],
+      };
+    case "composer-2":
+      return {
+        ...baseConfig,
+        modelName: "composer-2",
+        maxMode: false,
+        selectedModels: [
+          {
+            modelId: "composer-2",
+            parameters: [{ id: "fast", value: "false" }],
+          },
+        ],
+      };
+    default:
+      throw new Error(`Unsupported Cursor model: ${model}`);
+  }
 }
 
 function sleep(ms) {

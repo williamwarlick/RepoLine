@@ -109,7 +109,8 @@ test('buildAgentEnvValues preserves direct speech provider env values', () => {
     })
   ).toMatchObject({
     BRIDGE_MODEL: DEFAULT_CURSOR_MODEL,
-    BRIDGE_CURSOR_TRANSPORT: 'cli',
+    BRIDGE_CURSOR_TRANSPORT: 'app',
+    BRIDGE_CURSOR_APP_SUBMIT_MODE: 'active-input',
     BRIDGE_CHUNK_CHARS: '80',
     BRIDGE_THINKING_SOUND_PRESET: 'soft-pulse',
     BRIDGE_THINKING_SOUND_INTERVAL_MS: '1800',
@@ -144,7 +145,7 @@ test('buildAgentEnvValues defaults Gemini to flash', () => {
   });
 });
 
-test('buildAgentEnvValues preserves cursor app transport', () => {
+test('buildAgentEnvValues preserves cursor app transport for faster local runtime', () => {
   expect(
     buildAgentEnvValues({
       project: {
@@ -163,6 +164,7 @@ test('buildAgentEnvValues preserves cursor app transport', () => {
     BRIDGE_CLI_PROVIDER: 'cursor',
     BRIDGE_MODEL: DEFAULT_CURSOR_MODEL,
     BRIDGE_CURSOR_TRANSPORT: 'app',
+    BRIDGE_CURSOR_APP_SUBMIT_MODE: 'active-input',
   });
 });
 

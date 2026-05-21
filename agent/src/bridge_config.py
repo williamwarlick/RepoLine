@@ -278,7 +278,7 @@ def _resolve_provider_transport(env: Mapping[str, str], provider: str) -> str | 
     if provider == "cursor":
         value = _env_optional(env, "BRIDGE_CURSOR_TRANSPORT")
         if value is None:
-            return "cli"
+            return "app"
         normalized = value.lower()
         if normalized not in {"app", "cli"}:
             raise ValueError(

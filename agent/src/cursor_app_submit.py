@@ -11,7 +11,12 @@ from cursor_app_bridge_client import (
     request_cursor_app_bridge,
     submit_prompt_via_cursor_app_bridge,
 )
-from cursor_app_tap import CursorAppTapError, find_active_composer_id, load_bubbles
+from cursor_app_tap import (
+    CursorAppTapError,
+    find_active_composer_id,
+    list_workspace_composers,
+    load_bubbles,
+)
 
 DEFAULT_CURSOR_APP_COMMAND_TITLE = "Focus Chat Followup"
 DEFAULT_CURSOR_APP_SUBMIT_MODE = "auto"
@@ -36,9 +41,11 @@ FALLBACK_PASTE_DELAY_SECONDS = 0.55
 FALLBACK_SUBMIT_DELAY_SECONDS = 0.15
 WORKSPACE_REFocus_DELAY_SECONDS = 0.75
 FAST_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 0.9
-FALLBACK_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 3.0
+FALLBACK_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 6.0
 SUBMIT_VERIFICATION_POLL_INTERVAL_SECONDS = 0.05
 BRIDGE_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 1.35
+ACTIVE_INPUT_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 1.5
+FRESH_ACTIVE_INPUT_SUBMIT_VERIFICATION_TIMEOUT_SECONDS = 8.0
 BRIDGE_COMPOSER_SCAN_STEPS = 6
 FRESH_COMPOSER_SWITCH_TIMEOUT_SECONDS = 8.0
 CURSOR_CONNECTION_INVALID_SNIPPET = "Connection is invalid"
@@ -176,19 +183,41 @@ def build_active_input_submit_command(
         "-e",
         "  set promptText to item 1 of argv",
         "-e",
-        "  set the clipboard to promptText",
-        "-e",
         '  tell application "Cursor" to activate',
         "-e",
         f"  delay {activate_delay_seconds}",
+        "-e",
+        '  tell application "System Events" to set frontApp to name of first application process whose frontmost is true',
+        "-e",
+        '  if frontApp is not "Cursor" then error "Cursor did not become the frontmost app; refusing UI submit."',
         "-e",
         '  tell application "System Events"',
         "-e",
         '    tell process "Cursor"',
         "-e",
-        "      set frontmost to true",
+        '      if (count of windows) is 0 then error "Cursor has no visible windows."',
+        "-e",
+        '      if (count of sheets of window 1) > 0 then error "Cursor has a modal sheet open; refusing UI submit."',
+        "-e",
+        "      set the clipboard to promptText",
+        "-e",
+        "      set windowPosition to position of window 1",
+        "-e",
+        "      set windowSize to size of window 1",
+        "-e",
+        "      set clickX to (item 1 of windowPosition) + (round ((item 1 of windowSize) * 0.78))",
+        "-e",
+        "      set clickY to (item 2 of windowPosition) + (item 2 of windowSize) - 55",
+        "-e",
+        "      click at {clickX, clickY}",
+        "-e",
+        f"      delay {select_delay_seconds}",
         "-e",
         '      keystroke "a" using {command down}',
+        "-e",
+        f"      delay {select_delay_seconds}",
+        "-e",
+        "      key code 51",
         "-e",
         f"      delay {select_delay_seconds}",
         "-e",
@@ -218,17 +247,13 @@ async def submit_prompt_to_cursor_app(
     start_new_composer: bool = False,
 ) -> CursorAppSubmitResult:
     workspace_path = str(Path(workspace_root).expanduser().resolve())
+    resolved_submit_mode = _normalize_submit_mode(submit_mode)
     bridge_status = await ensure_cursor_app_bridge(workspace_path)
     composer_id = await _ensure_selected_composer_id(
         workspace_path,
         bridge_status=bridge_status,
         prefer_new_composer=start_new_composer,
     )
-    if start_new_composer and not composer_id:
-        raise CursorAppSubmitError(
-            "Cursor app did not switch to a fresh composer for this benchmark turn."
-        )
-    resolved_submit_mode = _normalize_submit_mode(submit_mode)
 
     for attempt_mode in _submit_mode_attempts_for_bridge_status(
         resolved_submit_mode,
@@ -258,6 +283,7 @@ async def submit_prompt_to_cursor_app(
             workspace_root=workspace_path,
             prompt=prompt,
             composer_id=composer_id,
+            require_verified=start_new_composer,
         )
         if active_submit_result is not None:
             return active_submit_result
@@ -268,7 +294,7 @@ async def submit_prompt_to_cursor_app(
             )
 
     raise CursorAppSubmitError(
-        "Cursor app did not accept the prompt through the direct bridge or active composer input."
+        "Cursor app did not accept the prompt through a verified Cursor bridge submit."
     )
 
 
@@ -304,10 +330,11 @@ def _submit_mode_attempts_for_bridge_status(
     if _bridge_handle_submit_available(bridge_status):
         return (
             CURSOR_APP_SUBMIT_MODE_BRIDGE_COMPOSER_HANDLE,
+            CURSOR_APP_SUBMIT_MODE_BRIDGE_SUBMIT,
             CURSOR_APP_SUBMIT_MODE_ACTIVE_INPUT,
         )
 
-    return (CURSOR_APP_SUBMIT_MODE_ACTIVE_INPUT,)
+    return (CURSOR_APP_SUBMIT_MODE_BRIDGE_SUBMIT, CURSOR_APP_SUBMIT_MODE_ACTIVE_INPUT)
 
 
 def _bridge_handle_submit_available(bridge_status: dict[str, object] | None) -> bool:
@@ -440,7 +467,7 @@ async def _try_bridge_submit(
     if verified_result is not None:
         return verified_result
 
-    return CursorAppSubmitResult(composer_id=submit_result.composer_id)
+    return None
 
 
 async def _try_bridge_active_submit(
@@ -448,6 +475,7 @@ async def _try_bridge_active_submit(
     workspace_root: str,
     prompt: str,
     composer_id: str | None,
+    require_verified: bool = False,
 ) -> CursorAppSubmitResult | None:
     bridge_status = await ping_cursor_app_bridge(workspace_root)
     baseline_user_markers = _baseline_latest_user_markers(
@@ -455,36 +483,17 @@ async def _try_bridge_active_submit(
         bridge_status=bridge_status,
         fallback_composer_id=composer_id,
     )
-    try:
-        await request_cursor_app_bridge(
-            workspace_root=workspace_root,
-            payload={"method": "exec", "command": "composer.focusComposer", "args": []},
-        )
-    except CursorAppBridgeError:
-        return None
-
     active_submit_error = await _run_active_input_osascript(prompt=prompt)
-    if _is_invalid_cursor_connection_error(active_submit_error):
-        try:
-            await _refocus_cursor_workspace(workspace_root)
-            await ensure_cursor_app_bridge(workspace_root)
-            await request_cursor_app_bridge(
-                workspace_root=workspace_root,
-                payload={
-                    "method": "exec",
-                    "command": "composer.focusComposer",
-                    "args": [],
-                },
-            )
-        except CursorAppBridgeError:
-            return None
+    if active_submit_error is not None and _is_transient_cursor_window_error(
+        active_submit_error
+    ):
         active_submit_error = await _run_active_input_osascript(
             prompt=prompt,
             activate_delay_seconds=FALLBACK_ACTIVATE_DELAY_SECONDS,
             select_delay_seconds=FAST_ACTIVE_INPUT_SELECT_DELAY_SECONDS,
-            paste_delay_seconds=FALLBACK_PASTE_DELAY_SECONDS,
-            submit_delay_seconds=FALLBACK_SUBMIT_DELAY_SECONDS,
-    )
+            paste_delay_seconds=FAST_ACTIVE_INPUT_PASTE_DELAY_SECONDS,
+            submit_delay_seconds=FAST_ACTIVE_INPUT_SUBMIT_DELAY_SECONDS,
+        )
     if active_submit_error is not None:
         return None
 
@@ -496,13 +505,23 @@ async def _try_bridge_active_submit(
         fallback_composer_id=(
             _bridge_selected_composer_id(active_bridge_status) or composer_id
         ),
-        timeout_seconds=FALLBACK_SUBMIT_VERIFICATION_TIMEOUT_SECONDS,
+        timeout_seconds=(
+            FRESH_ACTIVE_INPUT_SUBMIT_VERIFICATION_TIMEOUT_SECONDS
+            if require_verified
+            else ACTIVE_INPUT_SUBMIT_VERIFICATION_TIMEOUT_SECONDS
+        ),
     )
     if verified_result is not None:
         return verified_result
+    if require_verified:
+        return None
+
+    recent_composer_ids = _recent_workspace_composer_ids(workspace_root, limit=1)
+    if recent_composer_ids:
+        return CursorAppSubmitResult(composer_id=recent_composer_ids[0])
 
     active_composer_ids = _candidate_submit_composer_ids(
-        bridge_status=active_bridge_status,
+        bridge_status=active_bridge_status or bridge_status,
         active_composer_id=_safe_find_active_composer_id(workspace_root),
         fallback_composer_id=composer_id,
     )
@@ -542,7 +561,9 @@ async def _ensure_selected_composer_id(
             workspace_root=workspace_root,
             payload={
                 "method": "exec",
-                "command": "composer.createNew",
+                "command": "composer.newAgentChat"
+                if prefer_new_composer
+                else "composer.createNew",
                 "args": [],
             },
         )
@@ -628,14 +649,16 @@ def _baseline_latest_user_markers(
     fallback_composer_id: str | None,
 ) -> dict[str, CursorUserBubbleMarker | None]:
     active_composer_id = _safe_find_active_composer_id(workspace_root)
-    return {
-        composer_id: _latest_user_marker(composer_id)
-        for composer_id in _candidate_submit_composer_ids(
-            bridge_status=bridge_status,
-            active_composer_id=active_composer_id,
-            fallback_composer_id=fallback_composer_id,
-        )
-    }
+    candidate_ids = _candidate_submit_composer_ids(
+        bridge_status=bridge_status,
+        active_composer_id=active_composer_id,
+        fallback_composer_id=fallback_composer_id,
+    )
+    for composer_id in _recent_workspace_composer_ids(workspace_root):
+        if composer_id not in candidate_ids:
+            candidate_ids.append(composer_id)
+
+    return {composer_id: _latest_user_marker(composer_id) for composer_id in candidate_ids}
 
 
 async def _wait_for_submitted_prompt(
@@ -657,12 +680,18 @@ async def _wait_for_submitted_prompt(
             active_composer_id=active_composer_id,
             fallback_composer_id=fallback_composer_id,
         )
+        for composer_id in _recent_workspace_composer_ids(workspace_root):
+            if composer_id not in candidate_ids:
+                candidate_ids.append(composer_id)
 
         for composer_id in candidate_ids:
             latest_user_marker = _latest_user_marker(composer_id)
             if latest_user_marker is None:
                 continue
-            if latest_user_marker.text != normalized_prompt:
+            if (
+                latest_user_marker.text != normalized_prompt
+                and normalized_prompt not in latest_user_marker.text
+            ):
                 continue
             baseline_marker = baseline_user_markers.get(composer_id)
             if (
@@ -718,6 +747,16 @@ def _is_invalid_cursor_connection_error(error_message: str | None) -> bool:
     if not error_message:
         return False
     return CURSOR_CONNECTION_INVALID_SNIPPET in error_message or "(-609)" in error_message
+
+
+def _is_transient_cursor_window_error(error_message: str | None) -> bool:
+    if not error_message:
+        return False
+    normalized = error_message.lower()
+    return (
+        "cursor has no visible windows" in normalized
+        or "cursor did not become the frontmost app" in normalized
+    )
 
 
 async def _refocus_cursor_workspace(workspace_root: str) -> None:
@@ -777,6 +816,14 @@ def _candidate_submit_composer_ids(
         if composer_id and composer_id not in candidate_ids:
             candidate_ids.append(composer_id)
     return candidate_ids
+
+
+def _recent_workspace_composer_ids(workspace_root: str, *, limit: int = 12) -> list[str]:
+    try:
+        composers = list_workspace_composers(workspace_root)
+    except CursorAppTapError:
+        return []
+    return [composer.composer_id for composer in composers[:limit]]
 
 
 def _preferred_candidate_submit_composer_id(

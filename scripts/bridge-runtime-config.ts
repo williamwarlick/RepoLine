@@ -85,7 +85,11 @@ export function buildAgentEnvValues(options: {
           ? DEFAULT_GEMINI_MODEL
           : ''),
     BRIDGE_CURSOR_TRANSPORT:
-      options.existingAgentEnv.BRIDGE_CURSOR_TRANSPORT ?? 'cli',
+      options.existingAgentEnv.BRIDGE_CURSOR_TRANSPORT ??
+      (options.bridgeProvider === 'cursor' ? 'app' : 'cli'),
+    BRIDGE_CURSOR_APP_SUBMIT_MODE:
+      options.existingAgentEnv.BRIDGE_CURSOR_APP_SUBMIT_MODE ??
+      (options.bridgeProvider === 'cursor' ? 'active-input' : ''),
     BRIDGE_THINKING_LEVEL:
       options.existingAgentEnv.BRIDGE_THINKING_LEVEL ??
       options.existingAgentEnv.BRIDGE_CODEX_REASONING_EFFORT ??

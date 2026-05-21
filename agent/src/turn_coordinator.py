@@ -320,6 +320,15 @@ class TurnCoordinator:
         provider_name = provider_display_name(self._config.provider)
         stream_session_id = str(uuid.uuid4()) if self._config.provider == "claude" else None
         active_session_id = stream_session_id or self._last_completed_stream_session_id
+        fresh_session_strategy = (
+            "new_composer"
+            if (
+                self._config.provider == "cursor"
+                and self._config.provider_transport == "app"
+                and self._last_completed_stream_session_id is None
+            )
+            else None
+        )
         turn_completed = False
         saw_text = False
         error_message: str | None = None
@@ -338,6 +347,7 @@ class TurnCoordinator:
             working_directory=self._config.working_directory,
             chunk_chars=self._config.chunk_chars,
             access_policy=self._config.access_policy,
+            fresh_session_strategy=fresh_session_strategy,
         )
 
         self._telemetry.emit(
@@ -346,6 +356,7 @@ class TurnCoordinator:
             provider=self._config.provider,
             stream_session_id=stream_session_id,
             resume_session_id=self._last_completed_stream_session_id,
+            fresh_session_strategy=fresh_session_strategy,
             transcript=user_text,
         )
         self._start_thinking_sound(turn_id=turn_id, stream_session_id=active_session_id)

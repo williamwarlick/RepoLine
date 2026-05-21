@@ -45,13 +45,21 @@ async def _run(args: argparse.Namespace) -> int:
         print(json.dumps(payload, indent=2))
         return 0
 
-    if args.method in {"submitOpenAndSend", "submitFollowupAndSend"}:
+    if args.method != "submit":
+        request_payload = {"method": args.method}
+        if args.prompt:
+            request_payload["prompt"] = args.prompt
+        if args.composer_id:
+            request_payload["composerId"] = args.composer_id
+        if args.model:
+            request_payload["model"] = args.model
+        if args.method == "exec":
+            request_payload["command"] = args.command
+            request_payload["args"] = args.args
+
         payload = await request_cursor_app_bridge(
             workspace_root=args.workspace,
-            payload={
-                "method": args.method,
-                "prompt": args.prompt,
-            },
+            payload=request_payload,
         )
         if payload is None:
             print("error: bridge state file was not found", file=sys.stderr)
@@ -100,6 +108,13 @@ def main() -> int:
             "exec",
             "submitOpenAndSend",
             "submitFollowupAndSend",
+            "submitViaComposerHandle",
+            "submitFollowupClipboardAndSend",
+            "submitStartPromptClipboardAndSend",
+            "submitOpenDetachedAndSend",
+            "submitTestOpenDetachedAndSend",
+            "inspectComposerHandle",
+            "setComposerModel",
         ),
         default="ping",
         help="Bridge action to perform.",
@@ -111,6 +126,10 @@ def main() -> int:
     parser.add_argument(
         "--composer-id",
         help="Optional explicit composer ID to target.",
+    )
+    parser.add_argument(
+        "--model",
+        help="Model value for --method setComposerModel.",
     )
     parser.add_argument(
         "--command",
@@ -127,10 +146,21 @@ def main() -> int:
 
     if args.method == "submit" and not args.prompt:
         parser.error("--prompt is required when --method submit is used.")
-    if args.method in {"submitOpenAndSend", "submitFollowupAndSend"} and not args.prompt:
+    prompt_methods = {
+        "submitOpenAndSend",
+        "submitFollowupAndSend",
+        "submitViaComposerHandle",
+        "submitFollowupClipboardAndSend",
+        "submitStartPromptClipboardAndSend",
+        "submitOpenDetachedAndSend",
+        "submitTestOpenDetachedAndSend",
+    }
+    if args.method in prompt_methods and not args.prompt:
         parser.error("--prompt is required for the selected submit method.")
     if args.method == "exec" and not args.command:
         parser.error("--command is required when --method exec is used.")
+    if args.method == "setComposerModel" and not args.model:
+        parser.error("--model is required when --method setComposerModel is used.")
 
     if args.method == "exec":
         parsed_args = []

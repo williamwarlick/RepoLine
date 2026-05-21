@@ -348,6 +348,51 @@ async def test_turn_coordinator_applies_runtime_model_override_to_new_turns() ->
     assert seen_models == ["composer-2"]
 
 
+@pytest.mark.asyncio
+async def test_cursor_app_first_turn_uses_new_composer_then_reuses_session() -> None:
+    session = FakeSession()
+    telemetry = FakeTelemetry()
+    seen_configs: list[tuple[str | None, str | None]] = []
+
+    async def stream_events(config) -> AsyncIterator[TextStreamEvent]:
+        seen_configs.append((config.resume_session_id, config.fresh_session_strategy))
+        yield TextStreamEvent(
+            type="speech_chunk",
+            text="On it.",
+            session_id="composer-call",
+        )
+        yield TextStreamEvent(type="done", exit_code=0, session_id="composer-call")
+
+    coordinator = TurnCoordinator(
+        config=_config(
+            provider="cursor",
+            provider_transport="app",
+            model="composer-2-fast",
+        ),
+        session=session,
+        telemetry=telemetry,
+        stream_events=stream_events,
+    )
+
+    await coordinator.submit_text_turn("First turn", source="chat_text")
+    await asyncio.sleep(0.02)
+    await coordinator.submit_text_turn("Second turn", source="chat_text")
+    await asyncio.sleep(0.02)
+    await coordinator.shutdown()
+
+    assert seen_configs == [
+        (None, "new_composer"),
+        ("composer-call", None),
+    ]
+    started_events = [
+        fields
+        for event_type, fields in telemetry.events
+        if event_type == "model_turn_started"
+    ]
+    assert started_events[0]["fresh_session_strategy"] == "new_composer"
+    assert started_events[1]["resume_session_id"] == "composer-call"
+
+
 def test_turn_coordinator_updates_runtime_model_for_cursor_app(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

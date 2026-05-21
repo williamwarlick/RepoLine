@@ -482,6 +482,11 @@ def test_update_cursor_runtime_model_updates_composer_and_app_state(tmp_path) ->
         "composer-2-fast"
     )
     assert app_state is not None
+    assert app_state["aiSettings"]["composerModel"] == "composer-2-fast"
+    assert (
+        app_state["aiSettings"]["previousModelBeforeDefault"]["composer"]
+        == "composer-2-fast"
+    )
     assert app_state["aiSettings"]["modelConfig"]["composer"] == build_cursor_model_config(
         "composer-2-fast"
     )

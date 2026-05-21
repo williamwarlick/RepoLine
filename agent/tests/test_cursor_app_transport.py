@@ -192,6 +192,53 @@ async def test_cursor_app_transport_adds_readonly_note_to_submitted_prompt() -> 
 
 
 @pytest.mark.asyncio
+async def test_cursor_app_transport_updates_runtime_model_before_submit() -> None:
+    submitter = FakeSubmitter()
+    model_updates: list[tuple[str, str]] = []
+
+    transport = CursorAppTransport(
+        submitter=submitter,
+        composer_id_resolver=lambda workspace: "composer-123",
+        tail_factory=lambda composer_id: FakeTail(
+            [
+                [],
+                [_assistant_update("Fast answer.")],
+                [],
+            ]
+        ),
+        composer_loader=lambda composer_id: {
+            "status": "completed",
+            "generatingBubbleIds": [],
+        },
+        model_updater=lambda workspace_root, model: model_updates.append(
+            (str(workspace_root), model)
+        )
+        or ["composer-123"],
+        poll_interval_seconds=0,
+        settle_delay_seconds=0,
+        response_timeout_seconds=1,
+    )
+
+    events = [
+        event
+        async for event in transport.stream(
+            TextStreamConfig(
+                provider="cursor",
+                provider_transport="app",
+                prompt="Say hi",
+                model="composer-2-fast",
+                working_directory="/tmp/demo",
+            )
+        )
+    ]
+
+    assert any(event.type == "done" for event in events)
+    assert model_updates[0][0].endswith("/tmp/demo")
+    assert model_updates[0][1] == "composer-2-fast"
+    assert submitter.calls[0]["prompt"].endswith("Say hi")
+
+
+@pytest.mark.asyncio
 async def test_cursor_app_transport_switches_to_submitted_composer_id() -> None:
     submitter = FakeSubmitter()
     submitter.result = CursorAppSubmitResult(composer_id="composer-live")

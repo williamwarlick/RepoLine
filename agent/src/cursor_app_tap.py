@@ -406,6 +406,12 @@ def build_cursor_model_config(
     raise CursorAppTapError(f"Unsupported Cursor app runtime model: {model}")
 
 
+def _cursor_composer_model_id(model: str) -> str:
+    if model in {"composer-2-fast", "composer-2"}:
+        return model
+    raise CursorAppTapError(f"Unsupported Cursor app runtime model: {model}")
+
+
 def _composer_has_history(
     composer_id: str | None,
     *,
@@ -499,6 +505,12 @@ def update_cursor_runtime_model(
     app_state = read_item_table_json(global_db, app_state_key)
     if app_state is not None:
         ai_settings = app_state.setdefault("aiSettings", {})
+        ai_settings["composerModel"] = _cursor_composer_model_id(model)
+        previous_model_by_surface = ai_settings.setdefault(
+            "previousModelBeforeDefault", {}
+        )
+        if isinstance(previous_model_by_surface, dict):
+            previous_model_by_surface["composer"] = _cursor_composer_model_id(model)
         model_config = ai_settings.setdefault("modelConfig", {})
         model_config["composer"] = build_cursor_model_config(
             model,
