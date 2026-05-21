@@ -78,6 +78,7 @@ See [SECURITY.md](./SECURITY.md) before exposing RepoLine outside your laptop or
 - [Phone access](./docs/PHONE.md)
 - [Latency notes](./docs/LATENCY.md)
 - [Costs and limits](./docs/COSTS.md)
+- [Agent goals and repo map](./docs/agents/goals.md)
 - [Security policy](./SECURITY.md)
 
 ## Latency Harness

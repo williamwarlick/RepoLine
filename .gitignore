@@ -4,3 +4,9 @@
 node_modules/
 output/playwright/
 test-results/
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.log

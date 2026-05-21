@@ -13,13 +13,10 @@
 Run these checks before opening a pull request:
 
 ```bash
-bun test scripts/*.test.ts
-cd agent && uv run pytest
-cd frontend && bun run lint
-cd frontend && bun run typecheck
-cd frontend && bun test
-cd frontend && bun run build
+bin/check
 ```
+
+Use `bin/check quick` while iterating if the frontend production build is not relevant to the change.
 
 ## Notes
 
